@@ -1,0 +1,19 @@
+apiVersion: quota.dev.operator/v1alpha1
+kind: QuotaProfile
+metadata:
+  labels:
+    app.kubernetes.io/name: namespace-quota-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: quotaprofile-sample-2
+  namespace: default
+spec:
+  namespaceSelector:
+    matchLabels:
+      environment: dev
+  precedence: 10
+  resourceQuota:
+    spec:
+      hard:
+        cpu: 1000m
+        memory: 1000Mi
+        storage: 1000Mi
