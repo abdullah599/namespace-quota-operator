@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
 	"github.com/samber/lo"
@@ -49,8 +50,6 @@ func SetupNamespaceWebhookWithManager(mgr ctrl.Manager) error {
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
 // +kubebuilder:webhook:path=/mutate--v1-namespace,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=namespaces,verbs=update,versions=v1,name=mnamespace-v1.kb.io,admissionReviewVersions=v1
-
-
 
 // NamespaceCustomDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind Namespace when those are created or updated.
@@ -117,17 +116,17 @@ func resolveConflict(ctx context.Context, quotaProfile *v1alpha1.QuotaProfile, n
 	existingProfileID := ns.Labels[v1alpha1.QuotaProfileLabelKey]
 	existingProfileNamespace, existingProfileName := splitProfileID(existingProfileID)
 
-	prevProfile := &v1alpha1.QuotaProfile{}
-	if err := C.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, prevProfile); err != nil {
+	existingProfile := &v1alpha1.QuotaProfile{}
+	if err := C.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, existingProfile); err != nil {
 		return err
 	}
 
-	if (prevProfile == &v1alpha1.QuotaProfile{}) {
+	if (existingProfile == &v1alpha1.QuotaProfile{}) {
 		addLabel(ns, quotaProfile)
 		return nil
 	}
 
-	if prevProfile.Spec.Precedence > quotaProfile.Spec.Precedence {
+	if existingProfile.Spec.Precedence > quotaProfile.Spec.Precedence {
 		return nil
 	}
 
@@ -146,4 +145,5 @@ func splitProfileID(profileID string) (string, string) {
 
 func addLabel(ns *v1.Namespace, quotaProfile *v1alpha1.QuotaProfile) {
 	ns.Labels[v1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
+	ns.Labels[v1alpha1.QuotaProfileLastUpdateTimestamp] = time.Now().Format(time.RFC3339)
 }

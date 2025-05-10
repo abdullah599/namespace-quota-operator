@@ -23,6 +23,9 @@ import (
 
 const (
 	QuotaProfileLabelKey = "quota.dev.operator/profile"
+
+	// QuotaProfileLastUpdateTimestamp is used to track when the namespace quota configuration was last updated. Label is added to the namespace when the quota profile is applied.
+	QuotaProfileLastUpdateTimestamp = "quota.dev.operator/profile/last-update-timestamp"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.

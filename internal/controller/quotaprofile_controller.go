@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -160,6 +161,7 @@ func splitProfileID(profileID string) (string, string) {
 
 func addLabel(ns *v1.Namespace, quotaProfile *quotav1alpha1.QuotaProfile) {
 	ns.Labels[quotav1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
+	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = time.Now().Format(time.RFC3339)
 }
 
 // SetupWithManager sets up the controller with the Manager.
