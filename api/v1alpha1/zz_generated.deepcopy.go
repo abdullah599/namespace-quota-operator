@@ -115,20 +115,19 @@ func (in *QuotaProfileList) DeepCopyObject() runtime.Object {
 func (in *QuotaProfileSpec) DeepCopyInto(out *QuotaProfileSpec) {
 	*out = *in
 	in.NamespaceSelector.DeepCopyInto(&out.NamespaceSelector)
-	if in.Precedence != nil {
-		in, out := &in.Precedence, &out.Precedence
-		*out = new(uint16)
-		**out = **in
+	if in.ResourceQuotaSpecs != nil {
+		in, out := &in.ResourceQuotaSpecs, &out.ResourceQuotaSpecs
+		*out = make([]v1.ResourceQuotaSpec, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
-	if in.ResourceQuota != nil {
-		in, out := &in.ResourceQuota, &out.ResourceQuota
-		*out = new(v1.ResourceQuota)
-		(*in).DeepCopyInto(*out)
-	}
-	if in.LimitRange != nil {
-		in, out := &in.LimitRange, &out.LimitRange
-		*out = new(v1.LimitRange)
-		(*in).DeepCopyInto(*out)
+	if in.LimitRangeSpecs != nil {
+		in, out := &in.LimitRangeSpecs, &out.LimitRangeSpecs
+		*out = make([]v1.LimitRangeSpec, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 

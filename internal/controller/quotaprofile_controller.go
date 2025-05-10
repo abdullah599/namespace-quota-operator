@@ -141,7 +141,7 @@ func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfi
 		return r.Update(ctx, ns)
 	}
 
-	if prevProfile.Spec.Precedence != nil && *prevProfile.Spec.Precedence > *quotaProfile.Spec.Precedence {
+	if prevProfile.Spec.Precedence > quotaProfile.Spec.Precedence {
 		return nil
 	}
 

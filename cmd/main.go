@@ -39,6 +39,7 @@ import (
 
 	quotav1alpha1 "github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
 	"github.com/abdullah599/namespace-quota-operator/internal/controller"
+	webhookdevoperatorv1 "github.com/abdullah599/namespace-quota-operator/internal/webhook/v1"
 	webhookquotav1alpha1 "github.com/abdullah599/namespace-quota-operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -214,6 +215,20 @@ func main() {
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err = webhookquotav1alpha1.SetupQuotaProfileWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "QuotaProfile")
+			os.Exit(1)
+		}
+	}
+	if err = (&controller.NamespaceReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = webhookdevoperatorv1.SetupNamespaceWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Namespace")
 			os.Exit(1)
 		}
 	}

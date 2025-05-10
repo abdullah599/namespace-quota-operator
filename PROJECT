@@ -20,4 +20,12 @@ resources:
   webhooks:
     validation: true
     webhookVersion: v1
+- controller: true
+  domain: dev.operator
+  kind: Namespace
+  path: github.com/abdullah599/namespace-quota-operator/api/v1
+  version: v1
+  webhooks:
+    defaulting: true
+    webhookVersion: v1
 version: "3"

@@ -29,10 +29,10 @@ const (
 
 // QuotaProfileSpec defines the desired state of QuotaProfile.
 type QuotaProfileSpec struct {
-	NamespaceSelector NamespaceSelector `json:"namespaceSelector"`
-	Precedence        *uint16           `json:"precedence,omitempty"`
-	ResourceQuota     *v1.ResourceQuota `json:"resourceQuota,omitempty"`
-	LimitRange        *v1.LimitRange    `json:"limitRange,omitempty"`
+	NamespaceSelector  NamespaceSelector      `json:"namespaceSelector"`
+	Precedence         uint16                 `json:"precedence"`
+	ResourceQuotaSpecs []v1.ResourceQuotaSpec `json:"resourceQuotaSpecs,omitempty"`
+	LimitRangeSpecs    []v1.LimitRangeSpec    `json:"limitRangeSpecs,omitempty"`
 }
 
 type NamespaceSelector struct {

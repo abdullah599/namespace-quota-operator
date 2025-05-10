@@ -11,9 +11,18 @@ spec:
     matchLabels:
       env: dev
   precedence: 100
-  resourceQuota:
-    spec:
-      hard:
+  resourceQuotaSpecs:
+  -   hard:
         cpu: 1000m
         memory: 1000Mi
         storage: 1000Mi
+  limitRangeSpecs:
+  -  limits:
+      -  type: Pod
+         min:
+          cpu: 100m
+          memory: 100Mi
+          storage: 100Mi
+         max:
+          cpu: 1000m
+          memory: 1000Mi

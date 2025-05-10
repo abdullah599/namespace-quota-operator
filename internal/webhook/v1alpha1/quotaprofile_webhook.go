@@ -107,10 +107,6 @@ func (v *QuotaProfileCustomValidator) validate(ctx context.Context, obj runtime.
 		}
 	}
 
-	if quotaprofile.Spec.Precedence == nil {
-		quotaprofile.Spec.Precedence = &defaultPrecedence
-	}
-
 	//list all quota profiles
 	quotaProfiles := &quotav1alpha1.QuotaProfileList{}
 	if err := C.List(ctx, quotaProfiles); err != nil {
