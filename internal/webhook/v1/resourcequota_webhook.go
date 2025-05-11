@@ -52,7 +52,6 @@ func SetupResourceQuotaWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type ResourceQuotaCustomValidator struct {
-	decoder *admission.Decoder
 }
 
 var _ webhook.CustomValidator = &ResourceQuotaCustomValidator{}

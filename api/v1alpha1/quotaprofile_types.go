@@ -44,7 +44,7 @@ type QuotaProfileSpec struct {
 
 type NamespaceSelector struct {
 
-	//NOTE: only one the these selectors can be used
+	// NOTE: only one the these selectors can be used
 	// All of the labels mentioned in this field will be required to select the namespace
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 

@@ -35,8 +35,6 @@ import (
 // log is for logging in this package.
 var quotaprofilelog = logf.Log.WithName("quotaprofile-resource")
 
-var defaultPrecedence = uint16(0)
-
 var C client.Client
 
 // SetupQuotaProfileWebhookWithManager registers the webhook for QuotaProfile in the manager.
@@ -115,7 +113,7 @@ func (v *QuotaProfileCustomValidator) validate(ctx context.Context, obj runtime.
 		}
 	}
 
-	//list all quota profiles
+	// list all quota profiles
 	quotaProfiles := &quotav1alpha1.QuotaProfileList{}
 	if err := C.List(ctx, quotaProfiles); err != nil {
 		quotaprofilelog.Error(err, "failed to list quota profiles")

@@ -122,7 +122,10 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 	r.log.Info("reconciling resource quotas", "namespace", namespace, "profile", q.Name)
 
 	rqs := &v1.ResourceQuotaList{}
-	r.List(ctx, rqs, client.InNamespace(namespace))
+	if err := r.List(ctx, rqs, client.InNamespace(namespace)); err != nil {
+		r.log.Error(err, "failed to list resource quotas", "namespace", namespace)
+		return err
+	}
 
 	if len(rqs.Items) != 0 {
 		for _, rg := range rqs.Items {
@@ -133,7 +136,11 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 
 			if rg.Labels[quotav1alpha1.QuotaProfileLabelKey] != getProfileID(q.Namespace, q.Name) {
 				r.log.Info("deleting resource quota with mismatched profile", "namespace", namespace, "name", rg.Name)
-				r.Delete(ctx, &rg)
+				if err := r.Delete(ctx, &rg); client.IgnoreNotFound(err) != nil {
+					r.log.Error(err, "failed to delete resource quota", "namespace", namespace, "name", rg.Name)
+				} else {
+					r.log.Info("successfully deleted resource quota", "namespace", namespace, "name", rg.Name)
+				}
 				continue
 			}
 
@@ -146,7 +153,11 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 
 				if index >= len(q.Spec.ResourceQuotaSpecs) {
 					r.log.Info("deleting resource quota with out of bounds index", "namespace", namespace, "name", rg.Name)
-					r.Delete(ctx, &rg)
+					if err := r.Delete(ctx, &rg); client.IgnoreNotFound(err) != nil {
+						r.log.Error(err, "failed to delete resource quota", "namespace", namespace, "name", rg.Name)
+					} else {
+						r.log.Info("successfully deleted resource quota", "namespace", namespace, "name", rg.Name)
+					}
 					continue
 				}
 
@@ -180,7 +191,10 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 	r.log.Info("reconciling limit ranges", "namespace", namespace, "profile", q.Name)
 
 	lrs := &v1.LimitRangeList{}
-	r.List(ctx, lrs, client.InNamespace(namespace))
+	if err := r.List(ctx, lrs, client.InNamespace(namespace)); err != nil {
+		r.log.Error(err, "failed to list limit ranges", "namespace", namespace)
+		return err
+	}
 
 	if len(lrs.Items) != 0 {
 		for _, lr := range lrs.Items {
@@ -191,7 +205,11 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 
 			if lr.Labels[quotav1alpha1.QuotaProfileLabelKey] != getProfileID(q.Namespace, q.Name) {
 				r.log.Info("deleting limit range with mismatched profile", "namespace", namespace, "name", lr.Name)
-				r.Delete(ctx, &lr)
+				if err := r.Delete(ctx, &lr); client.IgnoreNotFound(err) != nil {
+					r.log.Error(err, "failed to delete limit range", "namespace", namespace, "name", lr.Name)
+				} else {
+					r.log.Info("successfully deleted limit range", "namespace", namespace, "name", lr.Name)
+				}
 				continue
 			}
 
@@ -204,7 +222,11 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 
 				if index >= len(q.Spec.ResourceQuotaSpecs) {
 					r.log.Info("deleting limit range with out of bounds index", "namespace", namespace, "name", lr.Name)
-					r.Delete(ctx, &lr)
+					if err := r.Delete(ctx, &lr); client.IgnoreNotFound(err) != nil {
+						r.log.Error(err, "failed to delete limit range", "namespace", namespace, "name", lr.Name)
+					} else {
+						r.log.Info("successfully deleted limit range", "namespace", namespace, "name", lr.Name)
+					}
 					continue
 				}
 
@@ -237,7 +259,10 @@ func (r *NamespaceReconciler) deleteManagedResourceQuotas(ctx context.Context, n
 	r.log.Info("deleting managed resource quotas", "namespace", namespace)
 
 	rqs := &v1.ResourceQuotaList{}
-	r.List(ctx, rqs, client.InNamespace(namespace))
+	if err := r.List(ctx, rqs, client.InNamespace(namespace)); err != nil {
+		r.log.Error(err, "failed to list resource quotas", "namespace", namespace)
+		return err
+	}
 
 	for _, rq := range rqs.Items {
 		if rq.DeletionTimestamp != nil {
@@ -266,7 +291,10 @@ func (r *NamespaceReconciler) deleteManagedLimitRanges(ctx context.Context, name
 	r.log.Info("deleting managed limit ranges", "namespace", namespace)
 
 	lrs := &v1.LimitRangeList{}
-	r.List(ctx, lrs, client.InNamespace(namespace))
+	if err := r.List(ctx, lrs, client.InNamespace(namespace)); err != nil {
+		r.log.Error(err, "failed to list limit ranges", "namespace", namespace)
+		return err
+	}
 
 	for _, lr := range lrs.Items {
 		if lr.DeletionTimestamp != nil {
