@@ -170,11 +170,12 @@ func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfi
 
 	if existingProfileNamespace == quotaProfile.Namespace && existingProfileName == quotaProfile.Name {
 		l.Info("namespace already has this quota profile", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
-		return nil
+		addLabel(ns, quotaProfile)
+		return r.Update(ctx, ns)
 	}
 
 	existingProfile := &quotav1alpha1.QuotaProfile{}
-	if err := r.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, existingProfile); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, existingProfile); client.IgnoreNotFound(err) != nil {
 		l.Error(err, "failed to get existing quota profile", "namespace", existingProfileNamespace, "name", existingProfileName)
 		return err
 	}
@@ -187,7 +188,8 @@ func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfi
 
 	if existingProfile.Spec.Precedence > quotaProfile.Spec.Precedence || existingProfile.CreationTimestamp.After(quotaProfile.CreationTimestamp.Time) {
 		l.Info("keeping existing profile due to higher precedence", "namespace", ns.Name, "existingProfile", existingProfile.Name)
-		return nil
+		addLabel(ns, existingProfile)
+		return r.Update(ctx, ns)
 	}
 
 	l.Info("updating quota profile label", "namespace", ns.Name, "oldProfile", existingProfile.Name, "newProfile", quotaProfile.Name)

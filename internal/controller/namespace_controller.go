@@ -240,6 +240,11 @@ func (r *NamespaceReconciler) deleteManagedResourceQuotas(ctx context.Context, n
 	r.List(ctx, rqs, client.InNamespace(namespace))
 
 	for _, rq := range rqs.Items {
+		if rq.DeletionTimestamp != nil {
+			r.log.Info("skipping resource quota with deletion timestamp", "namespace", namespace, "name", rq.Name)
+			continue
+		}
+
 		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
 			r.log.Info("skipping unmanaged resource quota", "namespace", namespace, "name", rq.Name)
 			continue
@@ -264,6 +269,11 @@ func (r *NamespaceReconciler) deleteManagedLimitRanges(ctx context.Context, name
 	r.List(ctx, lrs, client.InNamespace(namespace))
 
 	for _, lr := range lrs.Items {
+		if lr.DeletionTimestamp != nil {
+			r.log.Info("skipping limit range with deletion timestamp", "namespace", namespace, "name", lr.Name)
+			continue
+		}
+
 		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
 			r.log.Info("skipping unmanaged limit range", "namespace", namespace, "name", lr.Name)
 			continue
