@@ -43,6 +43,7 @@ var C client.Client
 // SetupNamespaceWebhookWithManager registers the webhook for Namespace in the manager.
 func SetupNamespaceWebhookWithManager(mgr ctrl.Manager) error {
 	C = mgr.GetClient()
+	namespacelog.Info("setting up namespace webhook")
 	return ctrl.NewWebhookManagedBy(mgr).For(&v1.Namespace{}).
 		WithDefaulter(&NamespaceCustomDefaulter{}).
 		Complete()
@@ -70,10 +71,11 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 	if !ok {
 		return fmt.Errorf("expected an Namespace object but got %T", obj)
 	}
-	namespacelog.Info("Defaulting for Namespace", "name", namespace.GetName())
+	namespacelog.Info("defaulting for namespace", "name", namespace.GetName())
 
 	quotaProfiles := &v1alpha1.QuotaProfileList{}
 	if err := C.List(ctx, quotaProfiles); err != nil {
+		namespacelog.Error(err, "failed to list quota profiles")
 		return err
 	}
 
@@ -84,8 +86,13 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 	matched := false
 
 	for _, quotaProfile := range quotaProfiles.Items {
+		if quotaProfile.DeletionTimestamp != nil {
+			namespacelog.Info("quota profile is being deleted, skipping", "quotaProfile", quotaProfile.Name)
+			continue
+		}
 		if quotaProfile.Spec.NamespaceSelector.MatchName != nil {
 			if *quotaProfile.Spec.NamespaceSelector.MatchName == namespace.GetName() {
+				namespacelog.Info("matched namespace by name", "namespace", namespace.GetName(), "quotaProfile", quotaProfile.Name)
 				addLabel(namespace, &quotaProfile)
 				return nil
 			}
@@ -95,10 +102,12 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 			value := quotaProfile.Spec.NamespaceSelector.MatchLabels[key]
 
 			if _, ok := namespace.GetLabels()[key]; !ok {
+				namespacelog.Info("namespace does not have required label", "namespace", namespace.GetName(), "label", key)
 				continue
 			}
 			// selector match
 			if namespace.GetLabels()[key] == value {
+				namespacelog.Info("matched namespace by label", "namespace", namespace.GetName(), "quotaProfile", quotaProfile.Name, "label", fmt.Sprintf("%s=%s", key, value))
 				if _, ok := namespace.Labels[v1alpha1.QuotaProfileLabelKey]; !ok {
 					addLabel(namespace, &quotaProfile)
 					matched = true
@@ -106,10 +115,13 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 					existingProfileID := namespace.Labels[v1alpha1.QuotaProfileLabelKey]
 					existingProfileNamespace, existingProfileName := splitProfileID(existingProfileID)
 					if existingProfileNamespace == quotaProfile.Namespace && existingProfileName == quotaProfile.Name {
+						namespacelog.Info("namespace already has matching quota profile", "namespace", namespace.GetName(), "quotaProfile", quotaProfile.Name)
 						matched = true
 						continue
 					} else {
+						namespacelog.Info("resolving conflict between quota profiles", "namespace", namespace.GetName(), "existing", existingProfileID, "new", quotaProfile.Name)
 						if err := resolveConflict(ctx, &quotaProfile, namespace); err != nil {
+							namespacelog.Error(err, "failed to resolve conflict")
 							return err
 						}
 						matched = true
@@ -120,36 +132,41 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 	}
 
 	if !matched {
-		if _, ok := namespace.Labels[v1alpha1.QuotaProfileLabelKey]; ok {
-			removeLabel(namespace)
-		}
+		namespacelog.Info("no matching quota profile found, removing labels", "namespace", namespace.GetName())
+		removeLabel(namespace)
 	}
 
 	return nil
 }
+
 func removeLabel(ns *v1.Namespace) {
+	namespacelog.Info("removing quota profile labels", "namespace", ns.GetName())
 	delete(ns.Labels, v1alpha1.QuotaProfileLabelKey)
 	delete(ns.Labels, v1alpha1.QuotaProfileLastUpdateTimestamp)
 }
-func resolveConflict(ctx context.Context, quotaProfile *v1alpha1.QuotaProfile, ns *v1.Namespace) error {
 
+func resolveConflict(ctx context.Context, quotaProfile *v1alpha1.QuotaProfile, ns *v1.Namespace) error {
 	existingProfileID := ns.Labels[v1alpha1.QuotaProfileLabelKey]
 	existingProfileNamespace, existingProfileName := splitProfileID(existingProfileID)
 
 	existingProfile := &v1alpha1.QuotaProfile{}
 	if err := C.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, existingProfile); err != nil {
+		namespacelog.Error(err, "failed to get existing quota profile", "profile", existingProfileID)
 		return err
 	}
 
 	if (existingProfile == &v1alpha1.QuotaProfile{}) {
+		namespacelog.Info("existing profile not found, using new profile", "namespace", ns.GetName(), "profile", quotaProfile.Name)
 		addLabel(ns, quotaProfile)
 		return nil
 	}
 
 	if existingProfile.Spec.Precedence > quotaProfile.Spec.Precedence {
+		namespacelog.Info("keeping existing profile due to higher precedence", "namespace", ns.GetName(), "existing", existingProfileID, "existingPrecedence", existingProfile.Spec.Precedence, "newPrecedence", quotaProfile.Spec.Precedence)
 		return nil
 	}
 
+	namespacelog.Info("using new profile due to higher or equal precedence", "namespace", ns.GetName(), "new", quotaProfile.Name, "existingPrecedence", existingProfile.Spec.Precedence, "newPrecedence", quotaProfile.Spec.Precedence)
 	addLabel(ns, quotaProfile)
 
 	return nil
@@ -158,12 +175,14 @@ func resolveConflict(ctx context.Context, quotaProfile *v1alpha1.QuotaProfile, n
 func splitProfileID(profileID string) (string, string) {
 	parts := strings.Split(profileID, ".")
 	if len(parts) != 2 {
+		namespacelog.Info("invalid profile ID format", "profileID", profileID)
 		return "", ""
 	}
 	return parts[0], parts[1]
 }
 
 func addLabel(ns *v1.Namespace, quotaProfile *v1alpha1.QuotaProfile) {
+	namespacelog.Info("adding quota profile labels", "namespace", ns.GetName(), "quotaProfile", quotaProfile.Name)
 	ns.Labels[v1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
-	ns.Labels[v1alpha1.QuotaProfileLastUpdateTimestamp] = time.Now().Format(time.RFC3339)
+	ns.Labels[v1alpha1.QuotaProfileLastUpdateTimestamp] = strings.ReplaceAll(time.Now().Format(time.RFC3339), ":", "-")
 }

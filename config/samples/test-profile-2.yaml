@@ -9,7 +9,7 @@ metadata:
 spec:
   namespaceSelector:
     matchLabels:
-      environment: dev
+      env: dev
   precedence: 1000
   resourceQuotaSpecs:
   -   hard:

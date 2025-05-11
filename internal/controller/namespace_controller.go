@@ -57,73 +57,82 @@ type NamespaceReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-
 	r.log = log.FromContext(ctx)
+	r.log.Info("starting reconciliation", "namespace", req.NamespacedName)
+
 	ns := &v1.Namespace{}
 	if err := r.Get(ctx, req.NamespacedName, ns); err != nil {
+		r.log.Info("namespace not found", "namespace", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if _, exists := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
 		r.log.Info("no quota profile label found on namespace", "namespace", ns.Name)
 		if err := r.deleteManagedResourceQuotas(ctx, ns.Name); err != nil {
-			r.log.Error(err, "failed to delete managed resource quotas")
+			r.log.Error(err, "failed to delete managed resource quotas", "namespace", ns.Name)
 			return ctrl.Result{}, err
 		}
 
 		if err := r.deleteManagedLimitRanges(ctx, ns.Name); err != nil {
-			r.log.Error(err, "failed to delete managed limit ranges")
+			r.log.Error(err, "failed to delete managed limit ranges", "namespace", ns.Name)
 			return ctrl.Result{}, err
 		}
 
+		r.log.Info("successfully cleaned up managed resources", "namespace", ns.Name)
 		return ctrl.Result{}, nil
 	} else {
-
 		profileID := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]
 		profileNamespace, profileName := splitProfileID(profileID)
+		r.log.Info("found quota profile label", "namespace", ns.Name, "profileID", profileID)
 
 		profile := &quotav1alpha1.QuotaProfile{}
 		if err := r.Get(ctx, types.NamespacedName{Namespace: profileNamespace, Name: profileName}, profile); err != nil {
+			r.log.Error(err, "failed to get quota profile", "profileNamespace", profileNamespace, "profileName", profileName)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if err := r.reconcileQuotaProfile(ctx, *profile, ns.Name); err != nil {
-			r.log.Error(err, "failed to reconcile quota profile")
+			r.log.Error(err, "failed to reconcile quota profile", "namespace", ns.Name, "profileID", profileID)
 			return ctrl.Result{}, err
 		}
 
+		r.log.Info("successfully reconciled quota profile", "namespace", ns.Name, "profileID", profileID)
 		return ctrl.Result{}, nil
 	}
 }
 
 func (r *NamespaceReconciler) reconcileQuotaProfile(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
+	r.log.Info("reconciling quota profile", "namespace", namespace, "profile", q.Name)
 
 	if err := r.reconcileResourceQuotas(ctx, q, namespace); err != nil {
-		r.log.Error(err, "failed to reconcile resource quotas")
+		r.log.Error(err, "failed to reconcile resource quotas", "namespace", namespace, "profile", q.Name)
 		return err
 	}
 
 	if err := r.reconcileLimitRanges(ctx, q, namespace); err != nil {
-		r.log.Error(err, "failed to reconcile limit ranges")
+		r.log.Error(err, "failed to reconcile limit ranges", "namespace", namespace, "profile", q.Name)
 		return err
 	}
 
+	r.log.Info("successfully reconciled quota profile", "namespace", namespace, "profile", q.Name)
 	return nil
 }
 
 func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
+	r.log.Info("reconciling resource quotas", "namespace", namespace, "profile", q.Name)
 
 	rqs := &v1.ResourceQuotaList{}
-
 	r.List(ctx, rqs, client.InNamespace(namespace))
 
 	if len(rqs.Items) != 0 {
 		for _, rg := range rqs.Items {
 			if _, exists := rg.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+				r.log.Info("skipping unmanaged resource quota", "namespace", namespace, "name", rg.Name)
 				continue
 			}
 
 			if rg.Labels[quotav1alpha1.QuotaProfileLabelKey] != getProfileID(q.Namespace, q.Name) {
+				r.log.Info("deleting resource quota with mismatched profile", "namespace", namespace, "name", rg.Name)
 				r.Delete(ctx, &rg)
 				continue
 			}
@@ -131,18 +140,21 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 			if rg.Labels[quotav1alpha1.QuotaProfileLabelKey] == getProfileID(q.Namespace, q.Name) {
 				index, err := getResourceQuotaIndex(rg.Name)
 				if err != nil {
-					r.log.Error(err, "failed to split resource quota ID")
+					r.log.Error(err, "failed to get resource quota index", "name", rg.Name)
 					continue
 				}
 
 				if index >= len(q.Spec.ResourceQuotaSpecs) {
+					r.log.Info("deleting resource quota with out of bounds index", "namespace", namespace, "name", rg.Name)
 					r.Delete(ctx, &rg)
 					continue
 				}
 
 				rg.Spec = *q.Spec.ResourceQuotaSpecs[index].DeepCopy()
 				if err := r.Update(ctx, &rg); err != nil {
-					r.log.Error(err, "failed to update resource quota")
+					r.log.Error(err, "failed to update resource quota", "namespace", namespace, "name", rg.Name)
+				} else {
+					r.log.Info("successfully updated resource quota", "namespace", namespace, "name", rg.Name)
 				}
 			}
 		}
@@ -154,7 +166,9 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 			rq.Labels = map[string]string{quotav1alpha1.QuotaProfileLabelKey: getProfileID(q.Namespace, q.Name)}
 			rq.Spec = *rqspec.DeepCopy()
 			if err := r.Create(ctx, rq); err != nil {
-				r.log.Error(err, "failed to create resource quota")
+				r.log.Error(err, "failed to create resource quota", "namespace", namespace, "name", rq.Name)
+			} else {
+				r.log.Info("successfully created resource quota", "namespace", namespace, "name", rq.Name)
 			}
 		}
 	}
@@ -163,17 +177,20 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 }
 
 func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
-	lrs := &v1.LimitRangeList{}
+	r.log.Info("reconciling limit ranges", "namespace", namespace, "profile", q.Name)
 
+	lrs := &v1.LimitRangeList{}
 	r.List(ctx, lrs, client.InNamespace(namespace))
 
 	if len(lrs.Items) != 0 {
 		for _, lr := range lrs.Items {
 			if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+				r.log.Info("skipping unmanaged limit range", "namespace", namespace, "name", lr.Name)
 				continue
 			}
 
 			if lr.Labels[quotav1alpha1.QuotaProfileLabelKey] != getProfileID(q.Namespace, q.Name) {
+				r.log.Info("deleting limit range with mismatched profile", "namespace", namespace, "name", lr.Name)
 				r.Delete(ctx, &lr)
 				continue
 			}
@@ -181,18 +198,21 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 			if lr.Labels[quotav1alpha1.QuotaProfileLabelKey] == getProfileID(q.Namespace, q.Name) {
 				index, err := getLimitRangeIndex(lr.Name)
 				if err != nil {
-					r.log.Error(err, "failed to split limit range ID")
+					r.log.Error(err, "failed to get limit range index", "name", lr.Name)
 					continue
 				}
 
 				if index >= len(q.Spec.ResourceQuotaSpecs) {
+					r.log.Info("deleting limit range with out of bounds index", "namespace", namespace, "name", lr.Name)
 					r.Delete(ctx, &lr)
 					continue
 				}
 
 				lr.Spec = *q.Spec.LimitRangeSpecs[index].DeepCopy()
 				if err := r.Update(ctx, &lr); err != nil {
-					r.log.Error(err, "failed to update limit range")
+					r.log.Error(err, "failed to update limit range", "namespace", namespace, "name", lr.Name)
+				} else {
+					r.log.Info("successfully updated limit range", "namespace", namespace, "name", lr.Name)
 				}
 			}
 		}
@@ -204,7 +224,9 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 			lr.Labels = map[string]string{quotav1alpha1.QuotaProfileLabelKey: getProfileID(q.Namespace, q.Name)}
 			lr.Spec = *lrSpec.DeepCopy()
 			if err := r.Create(ctx, lr); err != nil {
-				r.log.Error(err, "failed to create limit range")
+				r.log.Error(err, "failed to create limit range", "namespace", namespace, "name", lr.Name)
+			} else {
+				r.log.Info("successfully created limit range", "namespace", namespace, "name", lr.Name)
 			}
 		}
 	}
@@ -212,16 +234,23 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 }
 
 func (r *NamespaceReconciler) deleteManagedResourceQuotas(ctx context.Context, namespace string) error {
+	r.log.Info("deleting managed resource quotas", "namespace", namespace)
+
 	rqs := &v1.ResourceQuotaList{}
 	r.List(ctx, rqs, client.InNamespace(namespace))
 
 	for _, rq := range rqs.Items {
 		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			r.log.Info("skipping unmanaged resource quota", "namespace", namespace, "name", rq.Name)
 			continue
 		}
 
-		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
-			r.Delete(ctx, &rq)
+		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; exists {
+			if err := r.Delete(ctx, &rq); err != nil {
+				r.log.Error(err, "failed to delete resource quota", "namespace", namespace, "name", rq.Name)
+			} else {
+				r.log.Info("successfully deleted resource quota", "namespace", namespace, "name", rq.Name)
+			}
 		}
 	}
 
@@ -229,16 +258,23 @@ func (r *NamespaceReconciler) deleteManagedResourceQuotas(ctx context.Context, n
 }
 
 func (r *NamespaceReconciler) deleteManagedLimitRanges(ctx context.Context, namespace string) error {
+	r.log.Info("deleting managed limit ranges", "namespace", namespace)
+
 	lrs := &v1.LimitRangeList{}
 	r.List(ctx, lrs, client.InNamespace(namespace))
 
 	for _, lr := range lrs.Items {
 		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			r.log.Info("skipping unmanaged limit range", "namespace", namespace, "name", lr.Name)
 			continue
 		}
 
-		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
-			r.Delete(ctx, &lr)
+		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; exists {
+			if err := r.Delete(ctx, &lr); err != nil {
+				r.log.Error(err, "failed to delete limit range", "namespace", namespace, "name", lr.Name)
+			} else {
+				r.log.Info("successfully deleted limit range", "namespace", namespace, "name", lr.Name)
+			}
 		}
 	}
 
@@ -249,7 +285,7 @@ func (r *NamespaceReconciler) deleteManagedLimitRanges(ctx context.Context, name
 func getResourceQuotaIndex(id string) (int, error) {
 	parts := strings.Split(id, "-")
 
-	index, err := strconv.Atoi(parts[len(parts)-1])
+	index, err := strconv.Atoi(parts[len(parts)-2])
 	if err != nil {
 		return -1, fmt.Errorf("invalid index: %s", parts[len(parts)-1])
 	}
@@ -260,11 +296,8 @@ func getResourceQuotaIndex(id string) (int, error) {
 // getLimitRangeIndex splits the limit range ID into namespace,  profile name, and index
 func getLimitRangeIndex(id string) (int, error) {
 	parts := strings.Split(id, "-")
-	if len(parts) != 4 {
-		return -1, fmt.Errorf("invalid limit range ID: %s. Expected format: <namespace>-<profile>-<index>-lr", id)
-	}
 
-	index, err := strconv.Atoi(parts[len(parts)-1])
+	index, err := strconv.Atoi(parts[len(parts)-2])
 	if err != nil {
 		return -1, fmt.Errorf("invalid index: %s", parts[len(parts)-1])
 	}

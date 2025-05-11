@@ -56,50 +56,59 @@ type QuotaProfileReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *QuotaProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
-	l.Info("Reconciling QuotaProfile")
+	l.Info("starting reconciliation", "quotaProfile", req.NamespacedName)
 
 	// Get the QuotaProfile instance
 	quotaProfile := &quotav1alpha1.QuotaProfile{}
 	if err := r.Get(ctx, req.NamespacedName, quotaProfile); err != nil {
 		if apierrors.IsNotFound(err) {
+			l.Info("quota profile not found", "quotaProfile", req.NamespacedName)
 			// Object not found, return. Created objects are automatically garbage collected.
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
+		l.Error(err, "failed to get quota profile", "quotaProfile", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
 	// Check if the QuotaProfile instance is marked for deletion
 	if !quotaProfile.DeletionTimestamp.IsZero() {
+		l.Info("quota profile is being deleted", "quotaProfile", req.NamespacedName)
 		return r.handleDeletion(ctx, quotaProfile)
 	}
 
 	// Add finalizer if it doesn't exist
 	if !controllerutil.ContainsFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer) {
+		l.Info("adding finalizer", "quotaProfile", req.NamespacedName)
 		controllerutil.AddFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer)
 		if err := r.Update(ctx, quotaProfile); err != nil {
+			l.Error(err, "failed to add finalizer", "quotaProfile", req.NamespacedName)
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
 	}
 
+	l.Info("reconciling namespaces", "quotaProfile", req.NamespacedName)
 	if err := r.reconcileNamespace(ctx, req); err != nil {
+		l.Error(err, "failed to reconcile namespaces", "quotaProfile", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
+	l.Info("successfully reconciled quota profile", "quotaProfile", req.NamespacedName)
 	return ctrl.Result{}, nil
 }
 
 func (r *QuotaProfileReconciler) reconcileNamespace(ctx context.Context, req ctrl.Request) error {
+	l := log.FromContext(ctx)
 
 	nsList := &v1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
+		l.Error(err, "failed to list namespaces")
 		return err
 	}
 
 	quotaProfile := &quotav1alpha1.QuotaProfile{}
-
 	if err := r.Get(ctx, req.NamespacedName, quotaProfile); err != nil {
+		l.Error(err, "failed to get quota profile", "quotaProfile", req.NamespacedName)
 		return err
 	}
 
@@ -116,7 +125,9 @@ func (r *QuotaProfileReconciler) reconcileNamespace(ctx context.Context, req ctr
 			value := quotaProfile.Spec.NamespaceSelector.MatchLabels[key]
 
 			if ns.Labels[key] == value {
+				l.Info("found matching namespace", "namespace", ns.Name)
 				if err := r.addLabelToNamespace(ctx, quotaProfile, &ns); err != nil {
+					l.Error(err, "failed to add label to namespace", "namespace", ns.Name)
 					return err
 				}
 			}
@@ -131,12 +142,14 @@ func (r *QuotaProfileReconciler) reconcileNamespace(ctx context.Context, req ctr
 // The quota profile label key is defined in the API package.
 // Returns an error if updating the namespace fails.
 func (r *QuotaProfileReconciler) addLabelToNamespace(ctx context.Context, quotaProfile *quotav1alpha1.QuotaProfile, ns *v1.Namespace) error {
+	l := log.FromContext(ctx)
 
 	if ns.Labels == nil {
 		ns.Labels = make(map[string]string)
 	}
 
 	if ns.Labels[quotav1alpha1.QuotaProfileLabelKey] == "" {
+		l.Info("adding quota profile label to namespace", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
 		addLabel(ns, quotaProfile)
 		return r.Update(ctx, ns)
 	}
@@ -150,28 +163,34 @@ func (r *QuotaProfileReconciler) addLabelToNamespace(ctx context.Context, quotaP
 // Otherwise, the namespace is updated with the new quota profile label.
 // Returns an error if getting the existing profile or updating the namespace fails.
 func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfile *quotav1alpha1.QuotaProfile, ns *v1.Namespace) error {
+	l := log.FromContext(ctx)
 
 	existingProfileID := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]
 	existingProfileNamespace, existingProfileName := splitProfileID(existingProfileID)
 
 	if existingProfileNamespace == quotaProfile.Namespace && existingProfileName == quotaProfile.Name {
+		l.Info("namespace already has this quota profile", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
 		return nil
 	}
 
-	prevProfile := &quotav1alpha1.QuotaProfile{}
-	if err := r.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, prevProfile); err != nil {
+	existingProfile := &quotav1alpha1.QuotaProfile{}
+	if err := r.Get(ctx, types.NamespacedName{Name: existingProfileName, Namespace: existingProfileNamespace}, existingProfile); err != nil {
+		l.Error(err, "failed to get existing quota profile", "namespace", existingProfileNamespace, "name", existingProfileName)
 		return err
 	}
 
-	if (prevProfile == &quotav1alpha1.QuotaProfile{}) {
+	if (existingProfile == &quotav1alpha1.QuotaProfile{}) {
+		l.Info("existing profile not found, adding new profile", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
 		addLabel(ns, quotaProfile)
 		return r.Update(ctx, ns)
 	}
 
-	if prevProfile.Spec.Precedence > quotaProfile.Spec.Precedence {
+	if existingProfile.Spec.Precedence > quotaProfile.Spec.Precedence || existingProfile.CreationTimestamp.After(quotaProfile.CreationTimestamp.Time) {
+		l.Info("keeping existing profile due to higher precedence", "namespace", ns.Name, "existingProfile", existingProfile.Name)
 		return nil
 	}
 
+	l.Info("updating quota profile label", "namespace", ns.Name, "oldProfile", existingProfile.Name, "newProfile", quotaProfile.Name)
 	addLabel(ns, quotaProfile)
 
 	return r.Update(ctx, ns)
@@ -187,7 +206,7 @@ func splitProfileID(profileID string) (string, string) {
 
 func addLabel(ns *v1.Namespace, quotaProfile *quotav1alpha1.QuotaProfile) {
 	ns.Labels[quotav1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
-	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = time.Now().Format(time.RFC3339)
+	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = strings.ReplaceAll(time.Now().Format(time.RFC3339), ":", "-")
 }
 
 // handleDeletion handles the cleanup when a QuotaProfile is being deleted
@@ -196,12 +215,14 @@ func (r *QuotaProfileReconciler) handleDeletion(ctx context.Context, quotaProfil
 
 	// Check if finalizer exists
 	if !controllerutil.ContainsFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer) {
+		l.Info("finalizer not found, skipping cleanup", "quotaProfile", quotaProfile.Name)
 		return ctrl.Result{}, nil
 	}
 
 	// Cleanup logic: Remove quota profile label from all namespaces that were using this profile
 	nsList := &v1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
+		l.Error(err, "failed to list namespaces during cleanup", "quotaProfile", quotaProfile.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -215,11 +236,12 @@ func (r *QuotaProfileReconciler) handleDeletion(ctx context.Context, quotaProfil
 			// Extract namespace and name from profile ID
 			profileNs, profileName := splitProfileID(profileID)
 			if profileNs == quotaProfile.Namespace && profileName == quotaProfile.Name {
+				l.Info("removing quota profile label from namespace", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
 				// Remove the quota profile label
 				delete(ns.Labels, quotav1alpha1.QuotaProfileLabelKey)
 				delete(ns.Labels, quotav1alpha1.QuotaProfileLastUpdateTimestamp)
 				if err := r.Update(ctx, &ns); err != nil {
-					l.Error(err, "Failed to remove quota profile label from namespace", "namespace", ns.Name)
+					l.Error(err, "failed to remove quota profile label from namespace", "namespace", ns.Name)
 					return ctrl.Result{}, err
 				}
 			}
@@ -227,11 +249,14 @@ func (r *QuotaProfileReconciler) handleDeletion(ctx context.Context, quotaProfil
 	}
 
 	// Remove finalizer
+	l.Info("removing finalizer", "quotaProfile", quotaProfile.Name)
 	controllerutil.RemoveFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer)
 	if err := r.Update(ctx, quotaProfile); err != nil {
+		l.Error(err, "failed to remove finalizer", "quotaProfile", quotaProfile.Name)
 		return ctrl.Result{}, err
 	}
 
+	l.Info("successfully cleaned up quota profile", "quotaProfile", quotaProfile.Name)
 	return ctrl.Result{}, nil
 }
 

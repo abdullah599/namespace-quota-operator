@@ -41,6 +41,7 @@ var C client.Client
 
 // SetupQuotaProfileWebhookWithManager registers the webhook for QuotaProfile in the manager.
 func SetupQuotaProfileWebhookWithManager(mgr ctrl.Manager) error {
+	quotaprofilelog.Info("setting up quotaprofile webhook with manager")
 	C = mgr.GetClient()
 	return ctrl.NewWebhookManagedBy(mgr).For(&quotav1alpha1.QuotaProfile{}).
 		WithValidator(&QuotaProfileCustomValidator{}).
@@ -66,11 +67,13 @@ var _ webhook.CustomValidator = &QuotaProfileCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type QuotaProfile.
 func (v *QuotaProfileCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	quotaprofilelog.Info("validating quotaprofile creation")
 	return v.validate(ctx, obj)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type QuotaProfile.
 func (v *QuotaProfileCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	quotaprofilelog.Info("validating quotaprofile update")
 	return v.validate(ctx, newObj)
 }
 
@@ -78,9 +81,10 @@ func (v *QuotaProfileCustomValidator) ValidateUpdate(ctx context.Context, oldObj
 func (v *QuotaProfileCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	quotaprofile, ok := obj.(*quotav1alpha1.QuotaProfile)
 	if !ok {
+		quotaprofilelog.Error(nil, "received invalid object type", "expected", "QuotaProfile", "got", fmt.Sprintf("%T", obj))
 		return nil, fmt.Errorf("expected a QuotaProfile object but got %T", obj)
 	}
-	quotaprofilelog.Info("Validation for QuotaProfile upon deletion", "name", quotaprofile.GetName())
+	quotaprofilelog.Info("validating quotaprofile deletion", "name", quotaprofile.GetName(), "namespace", quotaprofile.GetNamespace())
 
 	return nil, nil
 }
@@ -88,21 +92,25 @@ func (v *QuotaProfileCustomValidator) ValidateDelete(ctx context.Context, obj ru
 func (v *QuotaProfileCustomValidator) validate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	quotaprofile, ok := obj.(*quotav1alpha1.QuotaProfile)
 	if !ok {
+		quotaprofilelog.Error(nil, "received invalid object type", "expected", "QuotaProfile", "got", fmt.Sprintf("%T", obj))
 		return nil, fmt.Errorf("expected a QuotaProfile object but got %T", obj)
 	}
-	quotaprofilelog.Info("Validation for QuotaProfile upon creation", "name", quotaprofile.GetName())
+	quotaprofilelog.Info("validating quotaprofile", "name", quotaprofile.GetName(), "namespace", quotaprofile.GetNamespace())
 
 	if quotaprofile.Spec.NamespaceSelector.MatchLabels == nil && quotaprofile.Spec.NamespaceSelector.MatchName == nil {
+		quotaprofilelog.Info("validation failed", "reason", "no selector specified")
 		return nil, fmt.Errorf("one of namespaceSelector.matchLabels or namespaceSelector.matchName must be set")
 	}
 
 	if quotaprofile.Spec.NamespaceSelector.MatchLabels != nil && quotaprofile.Spec.NamespaceSelector.MatchName != nil {
+		quotaprofilelog.Info("validation failed", "reason", "both selectors specified")
 		return nil, fmt.Errorf("only one of namespaceSelector.matchLabels or namespaceSelector.matchName can be set")
 	}
 
 	// this is a limitation of this operator, and can be removed in the future
 	if quotaprofile.Spec.NamespaceSelector.MatchLabels != nil {
 		if len(quotaprofile.Spec.NamespaceSelector.MatchLabels) > 1 {
+			quotaprofilelog.Info("validation failed", "reason", "too many labels", "count", len(quotaprofile.Spec.NamespaceSelector.MatchLabels))
 			return nil, fmt.Errorf("only one label can be used in namespaceSelector.matchLabels")
 		}
 	}
@@ -110,18 +118,19 @@ func (v *QuotaProfileCustomValidator) validate(ctx context.Context, obj runtime.
 	//list all quota profiles
 	quotaProfiles := &quotav1alpha1.QuotaProfileList{}
 	if err := C.List(ctx, quotaProfiles); err != nil {
+		quotaprofilelog.Error(err, "failed to list quota profiles")
 		return nil, fmt.Errorf("failed to list quota profiles: %w", err)
 	}
 
 	// if this quota has name in selector, check if other profiles have same name
 	if quotaprofile.Spec.NamespaceSelector.MatchName != nil {
 		for _, profile := range quotaProfiles.Items {
-
 			// skip if the profile is the same
 			if profile.Namespace == quotaprofile.Namespace && profile.Name == quotaprofile.Name {
 				continue
 			}
 			if profile.Spec.NamespaceSelector.MatchName != nil && *profile.Spec.NamespaceSelector.MatchName == *quotaprofile.Spec.NamespaceSelector.MatchName {
+				quotaprofilelog.Info("validation failed", "reason", "duplicate matchName", "matchName", *quotaprofile.Spec.NamespaceSelector.MatchName)
 				return nil, fmt.Errorf("quota profile with matchName %s already exists: %s/%s", *quotaprofile.Spec.NamespaceSelector.MatchName, profile.Namespace, profile.Name)
 			}
 		}
@@ -138,10 +147,13 @@ func (v *QuotaProfileCustomValidator) validate(ctx context.Context, obj runtime.
 			if profile.Spec.NamespaceSelector.MatchLabels != nil {
 				profileKeys := lo.Keys(profile.Spec.NamespaceSelector.MatchLabels)
 				if profileKeys[0] == keys[0] {
+					quotaprofilelog.Info("validation failed", "reason", "duplicate matchLabels", "matchLabels", quotaprofile.Spec.NamespaceSelector.MatchLabels)
 					return nil, fmt.Errorf("quota profile with matchLabels %v already exists: %s/%s", quotaprofile.Spec.NamespaceSelector.MatchLabels, profile.Namespace, profile.Name)
 				}
 			}
 		}
 	}
+
+	quotaprofilelog.Info("validation successful", "name", quotaprofile.GetName(), "namespace", quotaprofile.GetNamespace())
 	return nil, nil
 }

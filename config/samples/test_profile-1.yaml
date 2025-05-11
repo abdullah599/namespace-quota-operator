@@ -9,20 +9,22 @@ metadata:
 spec:
   namespaceSelector:
     matchLabels:
-      env: dev
-  precedence: 100
+      environment: dev
+  precedence: 10
   resourceQuotaSpecs:
   -   hard:
-        cpu: 1000m
-        memory: 1000Mi
-        storage: 1000Mi
+        requests.cpu: "1"
+        requests.memory: "1Gi"
+        limits.cpu: "2"
+        limits.memory: "2Gi"
   limitRangeSpecs:
-  -  limits:
-      -  type: Pod
-         min:
-          cpu: 100m
-          memory: 100Mi
-          storage: 100Mi
-         max:
-          cpu: 1000m
-          memory: 1000Mi
+  - limits:
+    - default: # this section defines default limits
+        cpu: 500m
+      defaultRequest: # this section defines default requests
+        cpu: 500m
+      max: # max and min define the limit range
+        cpu: "1"
+      min:
+        cpu: 100m
+      type: Container
