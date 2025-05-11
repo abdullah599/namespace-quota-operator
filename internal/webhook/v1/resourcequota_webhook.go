@@ -59,12 +59,6 @@ var _ webhook.CustomValidator = &ResourceQuotaCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type ResourceQuota.
 func (v *ResourceQuotaCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	req, err := admission.RequestFromContext(ctx)
-	if err != nil {
-		resourcequotalog.Error(err, "failed to get request from context")
-		return nil, fmt.Errorf("could not get request from context: %v", err)
-	}
-
 	resourcequota, ok := obj.(*v1.ResourceQuota)
 	if !ok {
 		resourcequotalog.Error(nil, "received invalid object type", "expected", "ResourceQuota", "got", fmt.Sprintf("%T", obj))
@@ -72,13 +66,13 @@ func (v *ResourceQuotaCustomValidator) ValidateCreate(ctx context.Context, obj r
 	}
 	resourcequotalog.Info("validating resourcequota creation", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 
-	if !isManagedByQuotaProfile(resourcequota) {
+	if !isManagedByQuotaProfile(resourcequota.GetLabels()) {
 		resourcequotalog.Info("resourcequota is not managed by quota profile, skipping validation", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, nil
 	}
 
-	if !isServiceAccount(req) {
-		resourcequotalog.Info("unauthorized request", "user", req.UserInfo.Username, "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
+	if !isServiceAccount(ctx) {
+		resourcequotalog.Info("unauthorized request", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, fmt.Errorf("only service accounts are allowed to create managed resource quotas")
 	}
 
@@ -88,12 +82,6 @@ func (v *ResourceQuotaCustomValidator) ValidateCreate(ctx context.Context, obj r
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type ResourceQuota.
 func (v *ResourceQuotaCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	req, err := admission.RequestFromContext(ctx)
-	if err != nil {
-		resourcequotalog.Error(err, "failed to get request from context")
-		return nil, fmt.Errorf("could not get request from context: %v", err)
-	}
-
 	resourcequota, ok := newObj.(*v1.ResourceQuota)
 	if !ok {
 		resourcequotalog.Error(nil, "received invalid object type", "expected", "ResourceQuota", "got", fmt.Sprintf("%T", newObj))
@@ -101,13 +89,13 @@ func (v *ResourceQuotaCustomValidator) ValidateUpdate(ctx context.Context, oldOb
 	}
 	resourcequotalog.Info("validating resourcequota update", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 
-	if !isManagedByQuotaProfile(resourcequota) {
+	if !isManagedByQuotaProfile(resourcequota.GetLabels()) {
 		resourcequotalog.Info("resourcequota is not managed by quota profile, skipping validation", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, nil
 	}
 
-	if !isServiceAccount(req) {
-		resourcequotalog.Info("unauthorized request", "user", req.UserInfo.Username, "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
+	if !isServiceAccount(ctx) {
+		resourcequotalog.Info("unauthorized request", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, fmt.Errorf("only service accounts are allowed to update managed resource quotas")
 	}
 
@@ -117,12 +105,6 @@ func (v *ResourceQuotaCustomValidator) ValidateUpdate(ctx context.Context, oldOb
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type ResourceQuota.
 func (v *ResourceQuotaCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	req, err := admission.RequestFromContext(ctx)
-	if err != nil {
-		resourcequotalog.Error(err, "failed to get request from context")
-		return nil, fmt.Errorf("could not get request from context: %v", err)
-	}
-
 	resourcequota, ok := obj.(*v1.ResourceQuota)
 	if !ok {
 		resourcequotalog.Error(nil, "received invalid object type", "expected", "ResourceQuota", "got", fmt.Sprintf("%T", obj))
@@ -130,13 +112,13 @@ func (v *ResourceQuotaCustomValidator) ValidateDelete(ctx context.Context, obj r
 	}
 	resourcequotalog.Info("validating resourcequota deletion", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 
-	if !isManagedByQuotaProfile(resourcequota) {
+	if !isManagedByQuotaProfile(resourcequota.GetLabels()) {
 		resourcequotalog.Info("resourcequota is not managed by quota profile, skipping validation", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, nil
 	}
 
-	if !isServiceAccount(req) {
-		resourcequotalog.Info("unauthorized request", "user", req.UserInfo.Username, "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
+	if !isServiceAccount(ctx) {
+		resourcequotalog.Info("unauthorized request", "name", resourcequota.GetName(), "namespace", resourcequota.GetNamespace())
 		return nil, fmt.Errorf("only service accounts are allowed to delete managed resource quotas")
 	}
 
@@ -144,14 +126,18 @@ func (v *ResourceQuotaCustomValidator) ValidateDelete(ctx context.Context, obj r
 	return nil, nil
 }
 
-func isManagedByQuotaProfile(rq *v1.ResourceQuota) bool {
-	labels := rq.GetLabels()
+func isManagedByQuotaProfile(labels map[string]string) bool {
 	if labels == nil {
 		return false
 	}
 	return labels[v1alpha1.QuotaProfileLabelKey] != ""
 }
 
-func isServiceAccount(req admission.Request) bool {
+func isServiceAccount(ctx context.Context) bool {
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		resourcequotalog.Error(err, "failed to get request from context")
+		return false
+	}
 	return strings.HasPrefix(req.UserInfo.Username, "system:serviceaccount:")
 }

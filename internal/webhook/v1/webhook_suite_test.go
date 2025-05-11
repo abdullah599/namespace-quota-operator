@@ -120,6 +120,9 @@ var _ = BeforeSuite(func() {
 	err = SetupResourceQuotaWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = SetupLimitRangeWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {
