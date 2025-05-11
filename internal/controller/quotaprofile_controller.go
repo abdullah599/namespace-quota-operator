@@ -22,10 +22,12 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	quotav1alpha1 "github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
@@ -54,8 +56,32 @@ type QuotaProfileReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *QuotaProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
-
 	l.Info("Reconciling QuotaProfile")
+
+	// Get the QuotaProfile instance
+	quotaProfile := &quotav1alpha1.QuotaProfile{}
+	if err := r.Get(ctx, req.NamespacedName, quotaProfile); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Object not found, return. Created objects are automatically garbage collected.
+			return ctrl.Result{}, nil
+		}
+		// Error reading the object - requeue the request.
+		return ctrl.Result{}, err
+	}
+
+	// Check if the QuotaProfile instance is marked for deletion
+	if !quotaProfile.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, quotaProfile)
+	}
+
+	// Add finalizer if it doesn't exist
+	if !controllerutil.ContainsFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer) {
+		controllerutil.AddFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer)
+		if err := r.Update(ctx, quotaProfile); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	if err := r.reconcileNamespace(ctx, req); err != nil {
 		return ctrl.Result{}, err
@@ -162,6 +188,51 @@ func splitProfileID(profileID string) (string, string) {
 func addLabel(ns *v1.Namespace, quotaProfile *quotav1alpha1.QuotaProfile) {
 	ns.Labels[quotav1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
 	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = time.Now().Format(time.RFC3339)
+}
+
+// handleDeletion handles the cleanup when a QuotaProfile is being deleted
+func (r *QuotaProfileReconciler) handleDeletion(ctx context.Context, quotaProfile *quotav1alpha1.QuotaProfile) (ctrl.Result, error) {
+	l := log.FromContext(ctx)
+
+	// Check if finalizer exists
+	if !controllerutil.ContainsFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	// Cleanup logic: Remove quota profile label from all namespaces that were using this profile
+	nsList := &v1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	for _, ns := range nsList.Items {
+		if ns.Labels == nil {
+			continue
+		}
+
+		// Check if namespace has this quota profile
+		if profileID, ok := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]; ok {
+			// Extract namespace and name from profile ID
+			profileNs, profileName := splitProfileID(profileID)
+			if profileNs == quotaProfile.Namespace && profileName == quotaProfile.Name {
+				// Remove the quota profile label
+				delete(ns.Labels, quotav1alpha1.QuotaProfileLabelKey)
+				delete(ns.Labels, quotav1alpha1.QuotaProfileLastUpdateTimestamp)
+				if err := r.Update(ctx, &ns); err != nil {
+					l.Error(err, "Failed to remove quota profile label from namespace", "namespace", ns.Name)
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
+	// Remove finalizer
+	controllerutil.RemoveFinalizer(quotaProfile, quotav1alpha1.QuotaProfileFinalizer)
+	if err := r.Update(ctx, quotaProfile); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

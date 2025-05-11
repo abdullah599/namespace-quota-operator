@@ -19,6 +19,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -76,10 +77,17 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 		return err
 	}
 
+	sort.Slice(quotaProfiles.Items, func(i, j int) bool {
+		return quotaProfiles.Items[i].CreationTimestamp.Before(&quotaProfiles.Items[j].CreationTimestamp)
+	})
+
+	matched := false
+
 	for _, quotaProfile := range quotaProfiles.Items {
 		if quotaProfile.Spec.NamespaceSelector.MatchName != nil {
 			if *quotaProfile.Spec.NamespaceSelector.MatchName == namespace.GetName() {
 				addLabel(namespace, &quotaProfile)
+				return nil
 			}
 		} else if quotaProfile.Spec.NamespaceSelector.MatchLabels != nil {
 			keys := lo.Keys(quotaProfile.Spec.NamespaceSelector.MatchLabels)
@@ -93,24 +101,36 @@ func (d *NamespaceCustomDefaulter) Default(ctx context.Context, obj runtime.Obje
 			if namespace.GetLabels()[key] == value {
 				if _, ok := namespace.Labels[v1alpha1.QuotaProfileLabelKey]; !ok {
 					addLabel(namespace, &quotaProfile)
+					matched = true
 				} else {
 					existingProfileID := namespace.Labels[v1alpha1.QuotaProfileLabelKey]
 					existingProfileNamespace, existingProfileName := splitProfileID(existingProfileID)
 					if existingProfileNamespace == quotaProfile.Namespace && existingProfileName == quotaProfile.Name {
+						matched = true
 						continue
 					} else {
 						if err := resolveConflict(ctx, &quotaProfile, namespace); err != nil {
 							return err
 						}
+						matched = true
 					}
 				}
 			}
 		}
 	}
 
+	if !matched {
+		if _, ok := namespace.Labels[v1alpha1.QuotaProfileLabelKey]; ok {
+			removeLabel(namespace)
+		}
+	}
+
 	return nil
 }
-
+func removeLabel(ns *v1.Namespace) {
+	delete(ns.Labels, v1alpha1.QuotaProfileLabelKey)
+	delete(ns.Labels, v1alpha1.QuotaProfileLastUpdateTimestamp)
+}
 func resolveConflict(ctx context.Context, quotaProfile *v1alpha1.QuotaProfile, ns *v1.Namespace) error {
 
 	existingProfileID := ns.Labels[v1alpha1.QuotaProfileLabelKey]

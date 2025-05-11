@@ -28,10 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // NamespaceReconciler reconciles a Namespace object
@@ -66,25 +64,36 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// todo: remove this as we are using the predicate to filter the namespaces that have the quota profile label
 	if _, exists := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+		r.log.Info("no quota profile label found on namespace", "namespace", ns.Name)
+		if err := r.deleteManagedResourceQuotas(ctx, ns.Name); err != nil {
+			r.log.Error(err, "failed to delete managed resource quotas")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.deleteManagedLimitRanges(ctx, ns.Name); err != nil {
+			r.log.Error(err, "failed to delete managed limit ranges")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{}, nil
+	} else {
+
+		profileID := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]
+		profileNamespace, profileName := splitProfileID(profileID)
+
+		profile := &quotav1alpha1.QuotaProfile{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: profileNamespace, Name: profileName}, profile); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
+		if err := r.reconcileQuotaProfile(ctx, *profile, ns.Name); err != nil {
+			r.log.Error(err, "failed to reconcile quota profile")
+			return ctrl.Result{}, err
+		}
+
 		return ctrl.Result{}, nil
 	}
-
-	profileID := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]
-	profileNamespace, profileName := splitProfileID(profileID)
-
-	profile := &quotav1alpha1.QuotaProfile{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: profileNamespace, Name: profileName}, profile); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	if err := r.reconcileQuotaProfile(ctx, *profile, ns.Name); err != nil {
-		r.log.Error(err, "failed to reconcile quota profile")
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
 }
 
 func (r *NamespaceReconciler) reconcileQuotaProfile(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
@@ -202,6 +211,40 @@ func (r *NamespaceReconciler) reconcileLimitRanges(ctx context.Context, q quotav
 	return nil
 }
 
+func (r *NamespaceReconciler) deleteManagedResourceQuotas(ctx context.Context, namespace string) error {
+	rqs := &v1.ResourceQuotaList{}
+	r.List(ctx, rqs, client.InNamespace(namespace))
+
+	for _, rq := range rqs.Items {
+		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			continue
+		}
+
+		if _, exists := rq.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			r.Delete(ctx, &rq)
+		}
+	}
+
+	return nil
+}
+
+func (r *NamespaceReconciler) deleteManagedLimitRanges(ctx context.Context, namespace string) error {
+	lrs := &v1.LimitRangeList{}
+	r.List(ctx, lrs, client.InNamespace(namespace))
+
+	for _, lr := range lrs.Items {
+		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			continue
+		}
+
+		if _, exists := lr.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
+			r.Delete(ctx, &lr)
+		}
+	}
+
+	return nil
+}
+
 // getResourceQuotaIndex splits the resource quota ID into namespace,  profile name, and index
 func getResourceQuotaIndex(id string) (int, error) {
 	parts := strings.Split(id, "-")
@@ -244,10 +287,7 @@ func getLimitRangeID(namespace, profile, index string) string {
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1.Namespace{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
-			_, exists := obj.GetLabels()[quotav1alpha1.QuotaProfileLabelKey]
-			return exists
-		}))).
+		For(&v1.Namespace{}).
 		Named("namespace").
 		Complete(r)
 }

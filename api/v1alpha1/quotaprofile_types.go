@@ -22,6 +22,10 @@ import (
 )
 
 const (
+	// QuotaProfileFinalizer is the name of the finalizer added to QuotaProfile resources
+	QuotaProfileFinalizer = "quota.dev.operator/finalizer"
+	
+	// QuotaProfileLabelKey is the label key used to identify quota profiles
 	QuotaProfileLabelKey = "quota.dev.operator/profile"
 
 	// QuotaProfileLastUpdateTimestamp is used to track when the namespace quota configuration was last updated. Label is added to the namespace when the quota profile is applied.
