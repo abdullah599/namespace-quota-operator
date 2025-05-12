@@ -66,6 +66,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if ns.DeletionTimestamp != nil {
+		r.log.Info("namespace is being deleted, skipping reconciliation", "namespace", ns.Name)
+		return ctrl.Result{}, nil
+	}
+
 	if _, exists := ns.Labels[quotav1alpha1.QuotaProfileLabelKey]; !exists {
 		r.log.Info("no quota profile label found on namespace", "namespace", ns.Name)
 		if err := r.deleteManagedResourceQuotas(ctx, ns.Name); err != nil {
