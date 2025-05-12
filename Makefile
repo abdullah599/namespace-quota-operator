@@ -1,5 +1,10 @@
 # Image URL to use all building/pushing image targets
-IMG ?= abdullah599/namespace-quota-operator
+VERSION ?= $(shell git describe --tags --always --dirty)
+IMG ?= abdullah599/namespace-quota-operator:$(VERSION)
+
+# Kind cluster configuration
+KIND_CLUSTER_NAME ?= namespace-quota-operator
+CERT_MANAGER_VERSION ?= 1.12.3
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -223,3 +228,82 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+.PHONY: release
+release: manifests generate fmt vet docker-build docker-push build-installer ## Build and release all components
+	@echo "Released $(IMG)"
+
+##@ Development Environment
+
+.PHONY: install-tools
+install-tools: ## Install kind and helm if not present
+	@echo "Checking and installing required tools..."
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Installing kind..."; \
+		curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-$$(uname)-amd64; \
+		chmod +x ./kind; \
+		sudo mv ./kind /usr/local/bin/kind; \
+	}
+	@echo "All required tools installed."
+
+.PHONY: setup-dev
+setup-dev: install-tools docker-build ## Create kind cluster, install cert-manager, and deploy operator
+	@echo "Creating kind cluster named $(KIND_CLUSTER_NAME)..."
+	@kind get clusters | grep -q '$(KIND_CLUSTER_NAME)' || { \
+		kind create cluster --name $(KIND_CLUSTER_NAME); \
+	}
+
+	@echo "Loading operator image into kind..."
+	@kind load docker-image $(IMG) --name $(KIND_CLUSTER_NAME)
+
+	@echo "Installing cert-manager $(CERT_MANAGER_VERSION)..."
+	@kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	@echo "Waiting for cert-manager to be ready..."
+	@kubectl wait --for=condition=available --timeout=120s -n cert-manager deployment/cert-manager
+	@kubectl wait --for=condition=available --timeout=120s -n cert-manager deployment/cert-manager-webhook
+	@kubectl wait --for=condition=available --timeout=120s -n cert-manager deployment/cert-manager-cainjector
+
+	@echo "Installing CRDs..."
+	@$(MAKE) install
+
+	@echo "Deploying operator..."
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	@$(KUSTOMIZE) build config/default | kubectl apply -f -
+
+	@echo "Development environment is ready!"
+	@echo "You can access the cluster with: kubectl get pods -A"
+
+.PHONY: teardown-dev
+teardown-dev: ## Delete operator deployment and kind cluster
+	@echo "Deleting kind cluster..."
+	-kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+	@echo "Development environment has been cleaned up."
+
+.PHONY: restart-operator
+restart-operator: manifests generate ## Rebuild and redeploy the operator in the dev environment
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Error: kind is not installed. Please run 'make install-tools' first."; \
+		exit 1; \
+	}
+	@if ! kind get clusters | grep -q '$(KIND_CLUSTER_NAME)'; then \
+		echo "Error: Kind cluster '$(KIND_CLUSTER_NAME)' not found. Please run 'make setup-dev' first."; \
+		exit 1; \
+	fi
+
+	@echo "Rebuilding operator image..."
+	@$(MAKE) docker-build
+
+	@echo "Loading image into kind..."
+	@kind load docker-image $(IMG) --name $(KIND_CLUSTER_NAME)
+
+	@echo "Setting imagePullPolicy to IfNotPresent..."
+	@kubectl patch deployment namespace-quota-operator-controller-manager -n namespace-quota-operator-system --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "IfNotPresent"}]'
+
+	@echo "Updating to latest image..."
+	@kubectl set image deployment/namespace-quota-operator-controller-manager -n namespace-quota-operator-system manager=${IMG}
+
+	@echo "Restarting operator deployment..."
+	@kubectl -n namespace-quota-operator-system rollout restart deployment namespace-quota-operator-controller-manager
+
+	@echo "Operator restarted successfully!"

@@ -1,0 +1,754 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+    control-plane: controller-manager
+  name: namespace-quota-operator-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: quotaprofiles.quota.dev.operator
+spec:
+  group: quota.dev.operator
+  names:
+    kind: QuotaProfile
+    listKind: QuotaProfileList
+    plural: quotaprofiles
+    singular: quotaprofile
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: QuotaProfile is the Schema for the quotaprofiles API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: QuotaProfileSpec defines the desired state of QuotaProfile.
+            properties:
+              limitRangeSpecs:
+                items:
+                  description: LimitRangeSpec defines a min/max usage limit for resources
+                    that match on kind.
+                  properties:
+                    limits:
+                      description: Limits is the list of LimitRangeItem objects that
+                        are enforced.
+                      items:
+                        description: LimitRangeItem defines a min/max usage limit
+                          for any resource that matches on kind.
+                        properties:
+                          default:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: Default resource requirement limit value
+                              by resource name if resource limit is omitted.
+                            type: object
+                          defaultRequest:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: DefaultRequest is the default resource requirement
+                              request value by resource name if resource request is
+                              omitted.
+                            type: object
+                          max:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: Max usage constraints on this kind by resource
+                              name.
+                            type: object
+                          maxLimitRequestRatio:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: MaxLimitRequestRatio if specified, the named
+                              resource must have a request and limit that are both
+                              non-zero where limit divided by request is less than
+                              or equal to the enumerated value; this represents the
+                              max burst for the named resource.
+                            type: object
+                          min:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: Min usage constraints on this kind by resource
+                              name.
+                            type: object
+                          type:
+                            description: Type of resource that this limit applies
+                              to.
+                            type: string
+                        required:
+                        - type
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                  required:
+                  - limits
+                  type: object
+                type: array
+              namespaceSelector:
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      NOTE: only one the these selectors can be used
+                      All of the labels mentioned in this field will be required to select the namespace
+                    type: object
+                  matchNameRegex:
+                    description: ResourceQuota will be applied to the namespace with
+                      the specified name
+                    type: string
+                type: object
+              precedence:
+                type: integer
+              resourceQuotaSpecs:
+                items:
+                  description: ResourceQuotaSpec defines the desired hard limits to
+                    enforce for Quota.
+                  properties:
+                    hard:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: |-
+                        hard is the set of desired hard limits for each named resource.
+                        More info: https://kubernetes.io/docs/concepts/policy/resource-quotas/
+                      type: object
+                    scopeSelector:
+                      description: |-
+                        scopeSelector is also a collection of filters like scopes that must match each object tracked by a quota
+                        but expressed using ScopeSelectorOperator in combination with possible values.
+                        For a resource to match, both scopes AND scopeSelector (if specified in spec), must be matched.
+                      properties:
+                        matchExpressions:
+                          description: A list of scope selector requirements by scope
+                            of the resources.
+                          items:
+                            description: |-
+                              A scoped-resource selector requirement is a selector that contains values, a scope name, and an operator
+                              that relates the scope name and values.
+                            properties:
+                              operator:
+                                description: |-
+                                  Represents a scope's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists, DoesNotExist.
+                                type: string
+                              scopeName:
+                                description: The name of the scope that the selector
+                                  applies to.
+                                type: string
+                              values:
+                                description: |-
+                                  An array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty.
+                                  This array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - operator
+                            - scopeName
+                            type: object
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    scopes:
+                      description: |-
+                        A collection of filters that must match each object tracked by a quota.
+                        If not specified, the quota matches all objects.
+                      items:
+                        description: A ResourceQuotaScope defines a filter that must
+                          match each object tracked by a quota
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: atomic
+                  type: object
+                type: array
+            required:
+            - namespaceSelector
+            - precedence
+            type: object
+          status:
+            description: QuotaProfileStatus defines the observed state of QuotaProfile.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-controller-manager
+  namespace: namespace-quota-operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-leader-election-role
+  namespace: namespace-quota-operator-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: namespace-quota-operator-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - limitranges
+  - resourcequotas
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - dev.operator
+  resources:
+  - namespaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - dev.operator
+  resources:
+  - namespaces/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - dev.operator
+  resources:
+  - namespaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: namespace-quota-operator-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: namespace-quota-operator-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-quotaprofile-admin-role
+rules:
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles
+  verbs:
+  - '*'
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-quotaprofile-editor-role
+rules:
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-quotaprofile-viewer-role
+rules:
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - quota.dev.operator
+  resources:
+  - quotaprofiles/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-leader-election-rolebinding
+  namespace: namespace-quota-operator-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: namespace-quota-operator-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: namespace-quota-operator-controller-manager
+  namespace: namespace-quota-operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: namespace-quota-operator-manager-role
+subjects:
+- kind: ServiceAccount
+  name: namespace-quota-operator-controller-manager
+  namespace: namespace-quota-operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: namespace-quota-operator-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: namespace-quota-operator-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: namespace-quota-operator-controller-manager
+  namespace: namespace-quota-operator-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+    control-plane: controller-manager
+  name: namespace-quota-operator-controller-manager-metrics-service
+  namespace: namespace-quota-operator-system
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/name: namespace-quota-operator
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-webhook-service
+  namespace: namespace-quota-operator-system
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: namespace-quota-operator
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+    control-plane: controller-manager
+  name: namespace-quota-operator-controller-manager
+  namespace: namespace-quota-operator-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: namespace-quota-operator
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: namespace-quota-operator
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --metrics-bind-address=:8443
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+        command:
+        - /manager
+        image: abdullah599/namespace-quota-operator:b04b982-dirty
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: webhook-certs
+          readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: namespace-quota-operator-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-metrics-certs
+  namespace: namespace-quota-operator-system
+spec:
+  dnsNames:
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc
+  - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: namespace-quota-operator-selfsigned-issuer
+  secretName: metrics-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-serving-cert
+  namespace: namespace-quota-operator-system
+spec:
+  dnsNames:
+  - namespace-quota-operator-webhook-service.namespace-quota-operator-system.svc
+  - namespace-quota-operator-webhook-service.namespace-quota-operator-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: namespace-quota-operator-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace-quota-operator
+  name: namespace-quota-operator-selfsigned-issuer
+  namespace: namespace-quota-operator-system
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: namespace-quota-operator-system/namespace-quota-operator-serving-cert
+  name: namespace-quota-operator-mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: namespace-quota-operator-webhook-service
+      namespace: namespace-quota-operator-system
+      path: /mutate--v1-namespace
+  failurePolicy: Fail
+  name: mnamespace-v1.kb.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - UPDATE
+    resources:
+    - namespaces
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: namespace-quota-operator-system/namespace-quota-operator-serving-cert
+  name: namespace-quota-operator-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: namespace-quota-operator-webhook-service
+      namespace: namespace-quota-operator-system
+      path: /validate--v1-limitrange
+  failurePolicy: Fail
+  name: vlimitrange-v1.kb.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - limitranges
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: namespace-quota-operator-webhook-service
+      namespace: namespace-quota-operator-system
+      path: /validate--v1-resourcequota
+  failurePolicy: Fail
+  name: vresourcequota-v1.kb.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - resourcequotas
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: namespace-quota-operator-webhook-service
+      namespace: namespace-quota-operator-system
+      path: /validate-quota-dev-operator-v1alpha1-quotaprofile
+  failurePolicy: Fail
+  name: vquotaprofile-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - quota.dev.operator
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - quotaprofiles
+  sideEffects: None
