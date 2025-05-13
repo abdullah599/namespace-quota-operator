@@ -21,10 +21,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	quotav1alpha1 "github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
@@ -34,51 +40,102 @@ var _ = Describe("QuotaProfile Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		quotaprofile := &quotav1alpha1.QuotaProfile{}
+		var (
+			ctx          context.Context
+			fakeClient   client.Client
+			s            *runtime.Scheme
+			quotaProfile *quotav1alpha1.QuotaProfile
+			reconciler   *QuotaProfileReconciler
+		)
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind QuotaProfile")
-			err := k8sClient.Get(ctx, typeNamespacedName, quotaprofile)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &quotav1alpha1.QuotaProfile{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+			// Set up logging
+			log.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
+
+			// Create a new scheme and add the necessary types
+			s = runtime.NewScheme()
+			_ = clientgoscheme.AddToScheme(s)
+			_ = quotav1alpha1.AddToScheme(s)
+
+			ctx = context.Background()
+
+			// Create test objects
+			quotaProfile = &quotav1alpha1.QuotaProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: quotav1alpha1.QuotaProfileSpec{
+					Precedence: 10,
+					NamespaceSelector: quotav1alpha1.NamespaceSelector{
+						MatchLabels: map[string]string{
+							"environment": "test",
+						},
 					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				},
+			}
+
+			// Create test namespace
+			testNs1 := &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-namespace-with-label",
+					Labels: map[string]string{
+						"environment": "test",
+					},
+				},
+			}
+
+			testNs2 := &v1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-namespace-without-label",
+				},
+			}
+
+			// Initialize the fake client with the test objects
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(s).
+				WithObjects(quotaProfile, testNs1, testNs2).
+				Build()
+
+			reconciler = &QuotaProfileReconciler{
+				Client: fakeClient,
+				Scheme: s,
 			}
 		})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &quotav1alpha1.QuotaProfile{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance QuotaProfile")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
 		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &QuotaProfileReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			By("Reconciling the QuotaProfile resource")
+			typeNamespacedName := types.NamespacedName{
+				Name:      resourceName,
+				Namespace: "default",
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			// Check that the profile label was added to the namespace
+			updatedNs := &v1.Namespace{}
+			err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-namespace-with-label"}, updatedNs)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Expect the namespace to have the quota profile label
+			profileLabelKey := quotav1alpha1.QuotaProfileLabelKey
+			Expect(updatedNs.Labels).To(HaveKey(profileLabelKey))
+			Expect(updatedNs.Labels[profileLabelKey]).To(Equal("default.test-resource"))
+
+			// Expect the namespace to have the quota profile label
+			profileLabelKey = quotav1alpha1.QuotaProfileLabelKey
+			Expect(updatedNs.Labels).To(HaveKey(profileLabelKey))
+			Expect(updatedNs.Labels[profileLabelKey]).To(Equal("default.test-resource"))
+
+			// Expect the namespace to not have the quota profile label
+			err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-namespace-without-label"}, updatedNs)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(updatedNs.Labels).ToNot(HaveKey(profileLabelKey))
+
 		})
 	})
 })
