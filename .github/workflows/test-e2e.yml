@@ -29,6 +29,11 @@ jobs:
       - name: Create kind cluster
         run: kind create cluster
 
+      - name: Set environment variables
+        run: |
+          export PROMETHEUS_INSTALL_SKIP=true
+          export CERT_MANAGER_INSTALL_SKIP=false
+
       - name: Running Test e2e
         run: |
           go mod tidy

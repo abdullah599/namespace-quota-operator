@@ -1,0 +1,27 @@
+apiVersion: quota.dev.operator/v1alpha1
+kind: QuotaProfile
+metadata:
+  labels:
+    app.kubernetes.io/name: namespace-quota-operator
+  name: quotaprofile-name-selector
+  namespace: default
+spec:
+  namespaceSelector:
+    matchName: "ns-name-selector"
+  resourceQuotaSpecs:
+  -   hard:
+        requests.cpu: "3"
+        requests.memory: "3Gi"
+        limits.cpu: "6"
+        limits.memory: "6Gi"
+  limitRangeSpecs:
+  - limits:
+    - default:
+        cpu: 1000m
+      defaultRequest:
+        cpu: 1000m
+      max:
+        cpu: "3"
+      min:
+        cpu: 300m
+      type: Container

@@ -49,7 +49,7 @@ type NamespaceSelector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 
 	// ResourceQuota will be applied to the namespace with the specified name
-	MatchName *string `json:"matchNameRegex,omitempty"`
+	MatchName *string `json:"matchName,omitempty"`
 }
 
 // QuotaProfileStatus defines the observed state of QuotaProfile.
