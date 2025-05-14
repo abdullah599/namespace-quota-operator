@@ -1,0 +1,27 @@
+apiVersion: quota.dev.operator/v1alpha1
+kind: QuotaProfile
+metadata:
+  labels:
+    app.kubernetes.io/name: namespace-quota-operator
+  name: quotaprofile-name-fallback
+  namespace: default
+spec:
+  namespaceSelector:
+    matchName: "ns-fallback"
+  resourceQuotaSpecs:
+  -   hard:
+        requests.cpu: "4"
+        requests.memory: "4Gi"
+        limits.cpu: "8"
+        limits.memory: "8Gi"
+  limitRangeSpecs:
+  - limits:
+    - default:
+        cpu: 1500m
+      defaultRequest:
+        cpu: 1500m
+      max:
+        cpu: "4"
+      min:
+        cpu: 400m
+      type: Container

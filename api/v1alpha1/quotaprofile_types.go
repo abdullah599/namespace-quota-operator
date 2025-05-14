@@ -37,7 +37,7 @@ const (
 // QuotaProfileSpec defines the desired state of QuotaProfile.
 type QuotaProfileSpec struct {
 	NamespaceSelector  NamespaceSelector      `json:"namespaceSelector"`
-	Precedence         uint16                 `json:"precedence"`
+	Precedence         uint16                 `json:"precedence,omitempty"`
 	ResourceQuotaSpecs []v1.ResourceQuotaSpec `json:"resourceQuotaSpecs,omitempty"`
 	LimitRangeSpecs    []v1.LimitRangeSpec    `json:"limitRangeSpecs,omitempty"`
 }
@@ -49,7 +49,7 @@ type NamespaceSelector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 
 	// ResourceQuota will be applied to the namespace with the specified name
-	MatchName *string `json:"matchNameRegex,omitempty"`
+	MatchName *string `json:"matchName,omitempty"`
 }
 
 // QuotaProfileStatus defines the observed state of QuotaProfile.

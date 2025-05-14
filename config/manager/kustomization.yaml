@@ -5,3 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: abdullah599/namespace-quota-operator
+  newTag: v0.1.0-dirty

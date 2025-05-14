@@ -127,7 +127,7 @@ spec:
                       NOTE: only one the these selectors can be used
                       All of the labels mentioned in this field will be required to select the namespace
                     type: object
-                  matchNameRegex:
+                  matchName:
                     description: ResourceQuota will be applied to the namespace with
                       the specified name
                     type: string
@@ -205,7 +205,6 @@ spec:
                 type: array
             required:
             - namespaceSelector
-            - precedence
             type: object
           status:
             description: QuotaProfileStatus defines the observed state of QuotaProfile.

@@ -96,7 +96,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		if err := r.reconcileQuotaProfile(ctx, *profile, ns.Name); err != nil {
+		if err := r.reconcileResources(ctx, *profile, ns.Name); err != nil {
 			r.log.Error(err, "failed to reconcile quota profile", "namespace", ns.Name, "profileID", profileID)
 			return ctrl.Result{}, err
 		}
@@ -106,8 +106,8 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 }
 
-func (r *NamespaceReconciler) reconcileQuotaProfile(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
-	r.log.Info("reconciling quota profile", "namespace", namespace, "profile", q.Name)
+func (r *NamespaceReconciler) reconcileResources(ctx context.Context, q quotav1alpha1.QuotaProfile, namespace string) error {
+	r.log.Info("reconciling resources", "namespace", namespace, "profile", q.Name)
 
 	if err := r.reconcileResourceQuotas(ctx, q, namespace); err != nil {
 		r.log.Error(err, "failed to reconcile resource quotas", "namespace", namespace, "profile", q.Name)
@@ -147,9 +147,7 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 					r.log.Info("successfully deleted resource quota", "namespace", namespace, "name", rg.Name)
 				}
 				continue
-			}
-
-			if rg.Labels[quotav1alpha1.QuotaProfileLabelKey] == getProfileID(q.Namespace, q.Name) {
+			} else if rg.Labels[quotav1alpha1.QuotaProfileLabelKey] == getProfileID(q.Namespace, q.Name) {
 				index, err := getResourceQuotaIndex(rg.Name)
 				if err != nil {
 					r.log.Error(err, "failed to get resource quota index", "name", rg.Name)
@@ -174,13 +172,33 @@ func (r *NamespaceReconciler) reconcileResourceQuotas(ctx context.Context, q quo
 				}
 			}
 		}
-	} else {
-		for i, rqspec := range q.Spec.ResourceQuotaSpecs {
-			rq := &v1.ResourceQuota{}
+	}
+
+	for i, rqspec := range q.Spec.ResourceQuotaSpecs {
+		rq := &v1.ResourceQuota{}
+
+		err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: getResourceQuotaID(q.Namespace, q.Name, strconv.Itoa(i))}, rq)
+		if client.IgnoreNotFound(err) != nil {
+			r.log.Error(err, "failed to get resource quota", "namespace", namespace, "name", rq.Name)
+			continue
+		}
+
+		rq.Spec = *rqspec.DeepCopy()
+
+		// This is the case where the resource quota is found, update it
+		if err == nil {
+
+			if err := r.Update(ctx, rq); err != nil {
+				r.log.Error(err, "failed to update resource quota", "namespace", namespace, "name", rq.Name)
+			} else {
+				r.log.Info("successfully updated resource quota", "namespace", namespace, "name", rq.Name)
+			}
+		} else {
+			// This is the case where the resource quota is not found, create it
 			rq.Name = getResourceQuotaID(q.Namespace, q.Name, strconv.Itoa(i))
 			rq.Namespace = namespace
 			rq.Labels = map[string]string{quotav1alpha1.QuotaProfileLabelKey: getProfileID(q.Namespace, q.Name)}
-			rq.Spec = *rqspec.DeepCopy()
+
 			if err := r.Create(ctx, rq); err != nil {
 				r.log.Error(err, "failed to create resource quota", "namespace", namespace, "name", rq.Name)
 			} else {

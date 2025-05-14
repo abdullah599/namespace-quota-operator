@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -112,7 +113,18 @@ func (r *QuotaProfileReconciler) reconcileNamespace(ctx context.Context, req ctr
 		return err
 	}
 
-	if quotaProfile.Spec.NamespaceSelector.MatchLabels != nil {
+	if quotaProfile.Spec.NamespaceSelector.MatchName != nil {
+		for _, ns := range nsList.Items {
+			if ns.Name == *quotaProfile.Spec.NamespaceSelector.MatchName {
+				l.Info("found matching namespace with name selector", "namespace", ns.Name)
+				setQuotaProfileLabels(&ns, quotaProfile)
+				if err := r.Update(ctx, &ns); err != nil {
+					l.Error(err, "failed to set quota profile labels", "namespace", ns.Name)
+					return err
+				}
+			}
+		}
+	} else if quotaProfile.Spec.NamespaceSelector.MatchLabels != nil {
 		for _, ns := range nsList.Items {
 			if ns.Labels == nil {
 				continue
@@ -125,7 +137,7 @@ func (r *QuotaProfileReconciler) reconcileNamespace(ctx context.Context, req ctr
 			value := quotaProfile.Spec.NamespaceSelector.MatchLabels[key]
 
 			if ns.Labels[key] == value {
-				l.Info("found matching namespace", "namespace", ns.Name)
+				l.Info("found matching namespace with label selector", "namespace", ns.Name)
 				if err := r.addLabelToNamespace(ctx, quotaProfile, &ns); err != nil {
 					l.Error(err, "failed to add label to namespace", "namespace", ns.Name)
 					return err
@@ -150,7 +162,7 @@ func (r *QuotaProfileReconciler) addLabelToNamespace(ctx context.Context, quotaP
 
 	if ns.Labels[quotav1alpha1.QuotaProfileLabelKey] == "" {
 		l.Info("adding quota profile label to namespace", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
-		addLabel(ns, quotaProfile)
+		setQuotaProfileLabels(ns, quotaProfile)
 		return r.Update(ctx, ns)
 	}
 
@@ -170,7 +182,7 @@ func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfi
 
 	if existingProfileNamespace == quotaProfile.Namespace && existingProfileName == quotaProfile.Name {
 		l.Info("namespace already has this quota profile", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
-		addLabel(ns, quotaProfile)
+		setQuotaProfileLabels(ns, quotaProfile)
 		return r.Update(ctx, ns)
 	}
 
@@ -182,18 +194,26 @@ func (r *QuotaProfileReconciler) resolveConflict(ctx context.Context, quotaProfi
 
 	if (existingProfile == &quotav1alpha1.QuotaProfile{}) {
 		l.Info("existing profile not found, adding new profile", "namespace", ns.Name, "quotaProfile", quotaProfile.Name)
-		addLabel(ns, quotaProfile)
+		setQuotaProfileLabels(ns, quotaProfile)
 		return r.Update(ctx, ns)
+	}
+
+	if existingProfile.Spec.NamespaceSelector.MatchName != nil {
+		if ns.Name == *existingProfile.Spec.NamespaceSelector.MatchName {
+			l.Info("namespace matches name selector", "namespace", ns.Name, "existingProfile", existingProfile.Name)
+			setQuotaProfileLabels(ns, existingProfile)
+			return r.Update(ctx, ns)
+		}
 	}
 
 	if existingProfile.Spec.Precedence > quotaProfile.Spec.Precedence || existingProfile.CreationTimestamp.After(quotaProfile.CreationTimestamp.Time) {
 		l.Info("keeping existing profile due to higher precedence", "namespace", ns.Name, "existingProfile", existingProfile.Name)
-		addLabel(ns, existingProfile)
+		setQuotaProfileLabels(ns, existingProfile)
 		return r.Update(ctx, ns)
 	}
 
 	l.Info("updating quota profile label", "namespace", ns.Name, "oldProfile", existingProfile.Name, "newProfile", quotaProfile.Name)
-	addLabel(ns, quotaProfile)
+	setQuotaProfileLabels(ns, quotaProfile)
 
 	return r.Update(ctx, ns)
 }
@@ -206,9 +226,9 @@ func splitProfileID(profileID string) (string, string) {
 	return parts[0], parts[1]
 }
 
-func addLabel(ns *v1.Namespace, quotaProfile *quotav1alpha1.QuotaProfile) {
+func setQuotaProfileLabels(ns *v1.Namespace, quotaProfile *quotav1alpha1.QuotaProfile) {
 	ns.Labels[quotav1alpha1.QuotaProfileLabelKey] = quotaProfile.Namespace + "." + quotaProfile.Name
-	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = strings.ReplaceAll(time.Now().Format(time.RFC3339), ":", "-")
+	ns.Labels[quotav1alpha1.QuotaProfileLastUpdateTimestamp] = fmt.Sprintf("%d", time.Now().UnixMicro())
 }
 
 // handleDeletion handles the cleanup when a QuotaProfile is being deleted

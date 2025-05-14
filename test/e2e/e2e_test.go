@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
 	"github.com/abdullah599/namespace-quota-operator/test/utils"
 )
 
@@ -76,10 +77,6 @@ var _ = Describe("Manager", Ordered, func() {
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
-		_, _ = utils.Run(cmd)
-
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
 
 		By("uninstalling CRDs")
@@ -301,14 +298,449 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+		// Test case 1: Apply quota profile and create resource quota and limit range for already created labeled namespace
+		It("should apply quota profile and create quota and limit range for already created labeled namespace", func() {
+			By("creating a namespace with a label")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns-with-label")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace with label")
+
+			cmd = exec.Command("kubectl", "label", "ns", "ns-with-label", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with test-label")
+
+			By("creating a quotaProfile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply quotaProfile")
+
+			By("validating that the namespace has the label")
+			cmd = exec.Command("kubectl", "get", "ns", "ns-with-label", "-o", "jsonpath={.metadata.labels}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(v1alpha1.QuotaProfileLabelKey))
+
+			By("checking if ResourceQuota was created")
+			cmd = exec.Command("kubectl", "get", "resourcequota", "-n", "ns-with-label", "-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var rq struct {
+				Items []struct {
+					Spec struct {
+						Hard map[string]string `json:"hard"`
+					} `json:"spec"`
+				} `json:"items"`
+			}
+			err = json.Unmarshal([]byte(output), &rq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rq.Items).To(HaveLen(1))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "1"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "1Gi"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("limits.cpu", "2"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("limits.memory", "2Gi"))
+
+			By("checking if LimitRange was created")
+			cmd = exec.Command("kubectl", "get", "limitrange", "-n", "ns-with-label", "-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var lr struct {
+				Items []struct {
+					Spec struct {
+						Limits []struct {
+							Default        map[string]string `json:"default"`
+							DefaultRequest map[string]string `json:"defaultRequest"`
+							Max            map[string]string `json:"max"`
+							Min            map[string]string `json:"min"`
+							Type           string            `json:"type"`
+						} `json:"limits"`
+					} `json:"spec"`
+				} `json:"items"`
+			}
+			err = json.Unmarshal([]byte(output), &lr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(lr.Items).To(HaveLen(1))
+			Expect(lr.Items[0].Spec.Limits).To(HaveLen(1))
+			Expect(lr.Items[0].Spec.Limits[0].Type).To(Equal("Container"))
+			Expect(lr.Items[0].Spec.Limits[0].Default).To(HaveKeyWithValue("cpu", "500m"))
+			Expect(lr.Items[0].Spec.Limits[0].DefaultRequest).To(HaveKeyWithValue("cpu", "500m"))
+			Expect(lr.Items[0].Spec.Limits[0].Max).To(HaveKeyWithValue("cpu", "1"))
+			Expect(lr.Items[0].Spec.Limits[0].Min).To(HaveKeyWithValue("cpu", "100m"))
+		})
+
+		// Test case 2: Apply quota profile and create resource quota and limit range for newly created labeled namespace
+		It("should apply quota profile and create quota and limit range for newly created labeled namespace", func() {
+			By("creating a namespace with a label")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns2-with-label")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace with label")
+
+			By("applying the quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply quotaProfile")
+
+			By("adding the label to the namespace")
+			cmd = exec.Command("kubectl", "label", "ns", "ns2-with-label", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with test-label")
+
+			By("checking if ResourceQuota was created")
+			cmd = exec.Command("kubectl", "get", "resourcequota", "-n", "ns2-with-label", "-o", "json")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var rq struct {
+				Items []struct {
+					Spec struct {
+						Hard map[string]string `json:"hard"`
+					} `json:"spec"`
+				} `json:"items"`
+			}
+			err = json.Unmarshal([]byte(output), &rq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rq.Items).To(HaveLen(1))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "1"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "1Gi"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("limits.cpu", "2"))
+			Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("limits.memory", "2Gi"))
+
+			By("checking if LimitRange was created")
+			cmd = exec.Command("kubectl", "get", "limitrange", "-n", "ns-with-label", "-o", "json")
+			output, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			var lr struct {
+				Items []struct {
+					Spec struct {
+						Limits []struct {
+							Default        map[string]string `json:"default"`
+							DefaultRequest map[string]string `json:"defaultRequest"`
+							Max            map[string]string `json:"max"`
+							Min            map[string]string `json:"min"`
+							Type           string            `json:"type"`
+						} `json:"limits"`
+					} `json:"spec"`
+				} `json:"items"`
+			}
+			err = json.Unmarshal([]byte(output), &lr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(lr.Items).To(HaveLen(1))
+			Expect(lr.Items[0].Spec.Limits).To(HaveLen(1))
+			Expect(lr.Items[0].Spec.Limits[0].Type).To(Equal("Container"))
+			Expect(lr.Items[0].Spec.Limits[0].Default).To(HaveKeyWithValue("cpu", "500m"))
+			Expect(lr.Items[0].Spec.Limits[0].DefaultRequest).To(HaveKeyWithValue("cpu", "500m"))
+			Expect(lr.Items[0].Spec.Limits[0].Max).To(HaveKeyWithValue("cpu", "1"))
+			Expect(lr.Items[0].Spec.Limits[0].Min).To(HaveKeyWithValue("cpu", "100m"))
+
+		})
+
+		// Test case 3: Update quota profile and verify that resource quota and limit range are updated
+		It("should update resource quota and limit range when quota profile is updated", func() {
+			By("applying quota profile")
+			cmd := exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply quotaProfile")
+
+			By("creating a namespace with the matching label")
+			cmd = exec.Command("kubectl", "create", "namespace", "ns-update-test")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+
+			cmd = exec.Command("kubectl", "label", "ns", "ns-update-test", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
+
+			By("verifying initial resource quota values")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-update-test", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var rq struct {
+					Items []struct {
+						Spec struct {
+							Hard map[string]string `json:"hard"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &rq)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(rq.Items).To(HaveLen(1))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "1"))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "1Gi"))
+			}).Should(Succeed())
+
+			time.Sleep(1 * time.Second)
+			By("updating the quota profile with new values")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-updated.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to update quotaProfile")
+
+			By("verifying that the resource quota is updated")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-update-test", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var rq struct {
+					Items []struct {
+						Spec struct {
+							Hard map[string]string `json:"hard"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &rq)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(rq.Items).To(HaveLen(1))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "2"))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "2Gi"))
+			}).Should(Succeed())
+
+			By("verifying that the limit range is updated")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "limitrange", "-n", "ns-update-test", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var lr struct {
+					Items []struct {
+						Spec struct {
+							Limits []struct {
+								Default        map[string]string `json:"default"`
+								DefaultRequest map[string]string `json:"defaultRequest"`
+								Max            map[string]string `json:"max"`
+								Min            map[string]string `json:"min"`
+								Type           string            `json:"type"`
+							} `json:"limits"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &lr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(lr.Items).To(HaveLen(1))
+				g.Expect(lr.Items[0].Spec.Limits[0].Default).To(HaveKeyWithValue("cpu", "750m"))
+				g.Expect(lr.Items[0].Spec.Limits[0].Max).To(HaveKeyWithValue("cpu", "2"))
+			}).Should(Succeed())
+		})
+
+		// Test case 4: Apply quota profile with name selector and check precedence
+		It("should apply name-based quota profile with higher precedence", func() {
+			By("creating a namespace")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns-name-selector")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+
+			By("applying the label to the namespace")
+			cmd = exec.Command("kubectl", "label", "ns", "ns-name-selector", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
+
+			By("applying label-based quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply label-based quotaProfile")
+
+			time.Sleep(1 * time.Second)
+			By("applying name-based quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-name-selector.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply name-based quotaProfile")
+
+			By("verifying that the name-based quota profile was applied (has precedence)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-name-selector", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var rq struct {
+					Items []struct {
+						Spec struct {
+							Hard map[string]string `json:"hard"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &rq)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(rq.Items).To(HaveLen(1))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "3"))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "3Gi"))
+			}).Should(Succeed())
+		})
+
+		// Test case 5: Fallback to label-based quota profile when name-based quota profile is deleted
+		It("should fallback to label-based quota profile when name-based quota profile is deleted", func() {
+			By("creating a namespace")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns-fallback")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+
+			By("applying the label to the namespace")
+			cmd = exec.Command("kubectl", "label", "ns", "ns-fallback", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
+
+			By("applying label-based quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply label-based quotaProfile")
+
+			time.Sleep(1 * time.Second)
+			By("applying name-based quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-name-fallback.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply name-based quotaProfile")
+
+			By("verifying name-based quota profile is applied")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-fallback", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var rq struct {
+					Items []struct {
+						Spec struct {
+							Hard map[string]string `json:"hard"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &rq)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(rq.Items).To(HaveLen(1))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "4"))
+			}).Should(Succeed())
+
+			By("deleting the name-based quota profile")
+			cmd = exec.Command("kubectl", "delete", "-f", "./test/testdata/qp-name-fallback.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete name-based quotaProfile")
+
+			By("verifying fallback to label-based quota profile")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-fallback", "-o", "json")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				var rq struct {
+					Items []struct {
+						Spec struct {
+							Hard map[string]string `json:"hard"`
+						} `json:"spec"`
+					} `json:"items"`
+				}
+				err = json.Unmarshal([]byte(output), &rq)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(rq.Items).To(HaveLen(1))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.cpu", "1"))
+				g.Expect(rq.Items[0].Spec.Hard).To(HaveKeyWithValue("requests.memory", "1Gi"))
+			}).Should(Succeed())
+		})
+
+		// Test case 6: Verify that user cannot update or delete managed resources
+		It("should prevent users from updating or deleting managed resources", func() {
+			By("creating a namespace with a label")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns-protected")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+
+			By("applying the quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply quotaProfile")
+
+			By("labeling namespace to apply quota profile")
+			cmd = exec.Command("kubectl", "label", "ns", "ns-protected", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
+
+			By("waiting for resource quota to be created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-protected")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("attempting to update the managed resource quota")
+			cmd = exec.Command("kubectl", "label", "resourcequota",
+				"default-quotaprofile-sample-1-0-rq",
+				"--namespace", "ns-protected",
+				"env=dev")
+			output, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "Updating managed ResourceQuota should be blocked")
+			Expect(output).To(ContainSubstring("admission webhook"), "Expected admission webhook error")
+
+			By("attempting to update the managed limit range")
+			cmd = exec.Command("kubectl", "label", "limitrange",
+				"default-quotaprofile-sample-1-0-lr",
+				"--namespace", "ns-protected",
+				"env=dev")
+			output, err = utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "Updating managed LimitRange should be blocked")
+			Expect(output).To(ContainSubstring("admission webhook"), "Expected admission webhook error")
+
+			By("attempting to delete the managed resource quota")
+			cmd = exec.Command("kubectl", "delete", "resourcequota",
+				"default-quotaprofile-sample-1-0-rq",
+				"--namespace", "ns-protected")
+			output, err = utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "Deleting managed ResourceQuota should be blocked")
+			Expect(output).To(ContainSubstring("admission webhook"), "Expected admission webhook error")
+		})
+
+		// Test case 7: Delete quota profile and verify resources are cleaned up
+		It("should remove labels, resource quotas, and limit ranges when quota profile is deleted", func() {
+			By("creating a namespace")
+			cmd := exec.Command("kubectl", "create", "namespace", "ns-cleanup")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+
+			By("applying quota profile")
+			cmd = exec.Command("kubectl", "apply", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply quotaProfile")
+
+			By("labeling namespace to apply quota profile")
+			cmd = exec.Command("kubectl", "label", "ns", "ns-cleanup", "env=dev")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
+
+			By("verifying resources were created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-cleanup")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "ResourceQuota should exist")
+
+				cmd = exec.Command("kubectl", "get", "limitrange", "-n", "ns-cleanup")
+				_, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "LimitRange should exist")
+			}).Should(Succeed())
+
+			By("deleting the quota profile")
+			cmd = exec.Command("kubectl", "delete", "-f", "./test/testdata/qp-1.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete quotaProfile")
+
+			By("verifying that resources are removed")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "resourcequota", "-n", "ns-cleanup")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("No resources found"), "ResourceQuota should be deleted")
+
+				cmd = exec.Command("kubectl", "get", "limitrange", "-n", "ns-cleanup")
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("No resources found"), "LimitRange should be deleted")
+
+				cmd = exec.Command("kubectl", "get", "ns", "ns-cleanup", "-o", "jsonpath={.metadata.labels}")
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(ContainSubstring(v1alpha1.QuotaProfileLabelKey),
+					"QuotaProfile label should be removed")
+			}).Should(Succeed())
+		})
+
 	})
 })
 
