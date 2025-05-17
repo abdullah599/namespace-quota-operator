@@ -46,7 +46,7 @@ func SetupNamespaceWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate--v1-namespace,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=namespaces,verbs=update,versions=v1,name=mnamespace-v1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate--v1-namespace,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=namespaces,verbs=create;update,versions=v1,name=mnamespace-v1.kb.io,admissionReviewVersions=v1
 
 // NamespaceCustomDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind Namespace when those are created or updated.
