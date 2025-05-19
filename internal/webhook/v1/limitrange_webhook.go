@@ -39,9 +39,6 @@ func SetupLimitRangeWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
 // +kubebuilder:webhook:path=/validate--v1-limitrange,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=limitranges,verbs=create;update;delete,versions=v1,name=vlimitrange-v1.kb.io,admissionReviewVersions=v1
@@ -52,7 +49,6 @@ func SetupLimitRangeWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type LimitRangeCustomValidator struct {
-	// TODO(user): Add more fields as needed for validation
 }
 
 var _ webhook.CustomValidator = &LimitRangeCustomValidator{}

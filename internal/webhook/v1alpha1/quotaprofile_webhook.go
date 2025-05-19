@@ -46,9 +46,6 @@ func SetupQuotaProfileWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
 // +kubebuilder:webhook:path=/validate-quota-dev-operator-v1alpha1-quotaprofile,mutating=false,failurePolicy=fail,sideEffects=None,groups=quota.dev.operator,resources=quotaprofiles,verbs=create;update,versions=v1alpha1,name=vquotaprofile-v1alpha1.kb.io,admissionReviewVersions=v1
