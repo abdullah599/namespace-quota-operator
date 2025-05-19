@@ -17,45 +17,126 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	quotav1alpha1 "github.com/abdullah599/namespace-quota-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	// TODO (user): Add any additional imports if needed
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+func setupFakeClientWithScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(s)
+	_ = quotav1alpha1.AddToScheme(s)
+	return s
+}
+
+func getProfileID(namespace, profile string) string {
+	return fmt.Sprintf("%s.%s", namespace, profile)
+}
 
 var _ = Describe("Namespace Webhook", func() {
 	var (
-		obj       *v1.Namespace
-		oldObj    *v1.Namespace
-		defaulter NamespaceCustomDefaulter
+		ns             *v1.Namespace
+		qp             *quotav1alpha1.QuotaProfile
+		qpIrrelevant   *quotav1alpha1.QuotaProfile
+		qpNameSelector *quotav1alpha1.QuotaProfile
+		defaulter      NamespaceCustomDefaulter
+		fakeClient     client.Client
+		s              *runtime.Scheme
 	)
 
 	BeforeEach(func() {
-		obj = &v1.Namespace{}
-		oldObj = &v1.Namespace{}
-		defaulter = NamespaceCustomDefaulter{}
-		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-		// TODO (user): Add any setup logic common to all tests
-	})
+		ns = &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace-with-label",
+				Labels: map[string]string{
+					"environment": "test",
+				},
+			},
+		}
+		qp = &quotav1alpha1.QuotaProfile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-quota-profile",
+				Namespace: "default-0",
+			},
+			Spec: quotav1alpha1.QuotaProfileSpec{
+				Precedence: 10,
+				NamespaceSelector: quotav1alpha1.NamespaceSelector{
+					MatchLabels: map[string]string{
+						"environment": "test",
+					},
+				},
+			},
+		}
 
-	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
+		qpIrrelevant = &quotav1alpha1.QuotaProfile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "irrelevant-quota-profile",
+				Namespace: "default-1",
+			},
+			Spec: quotav1alpha1.QuotaProfileSpec{
+				Precedence: 10,
+				NamespaceSelector: quotav1alpha1.NamespaceSelector{
+					MatchLabels: map[string]string{"environment": "dev"},
+				},
+			},
+		}
+
+		qpNameSelector = &quotav1alpha1.QuotaProfile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "nameselector-quota-profile",
+				Namespace: "default-2",
+			},
+			Spec: quotav1alpha1.QuotaProfileSpec{
+				NamespaceSelector: quotav1alpha1.NamespaceSelector{
+					MatchName: &ns.Name,
+				},
+			},
+		}
+
+		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
+		Expect(qp).NotTo(BeNil(), "Expected quotaProfile to be initialized")
+		Expect(ns).NotTo(BeNil(), "Expected ns to be initialized")
+
+		log.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
+
+		s = setupFakeClientWithScheme()
+
+		fakeClient = fake.NewClientBuilder().
+			WithScheme(s).
+			WithObjects(qp, qpIrrelevant).
+			Build()
+
+		defaulter = NamespaceCustomDefaulter{
+			c: fakeClient,
+		}
 	})
 
 	Context("When creating Namespace under Defaulting Webhook", func() {
-		// TODO (user): Add logic for defaulting webhooks
-		// Example:
-		// It("Should apply defaults when a required field is empty", func() {
-		//     By("simulating a scenario where defaults should be applied")
-		//     obj.SomeFieldWithDefault = ""
-		//     By("calling the Default method to apply defaults")
-		//     defaulter.Default(ctx, obj)
-		//     By("checking that the default values are set")
-		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
-		// })
+		It("should set the quota profile label for correct quota profile", func() {
+			err := defaulter.Default(ctx, ns)
+			Expect(err).NotTo(HaveOccurred(), "Expected no error when setting quota profile label")
+			Expect(ns.Labels).To(HaveKeyWithValue(quotav1alpha1.QuotaProfileLabelKey, getProfileID(qp.Namespace, qp.Name)))
+		})
+
+		It("should set the quota profile label for nameselector quota profile", func() {
+			err := fakeClient.Create(ctx, qpNameSelector)
+			Expect(err).NotTo(HaveOccurred(), "Expected no error when creating nameselector quota profile")
+			err = defaulter.Default(ctx, ns)
+			Expect(err).NotTo(HaveOccurred(), "Expected no error when setting quota profile label")
+			Expect(ns.Labels).To(HaveKeyWithValue(quotav1alpha1.QuotaProfileLabelKey, getProfileID(qpNameSelector.Namespace, qpNameSelector.Name)))
+		})
 	})
 
 })

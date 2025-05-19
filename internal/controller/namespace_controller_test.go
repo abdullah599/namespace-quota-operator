@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// Set up a fake client with the necessary schemes
 func setupFakeClientWithScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
@@ -45,7 +44,6 @@ func setupFakeClientWithScheme() *runtime.Scheme {
 }
 
 var _ = Describe("Namespace Controller", func() {
-	// Use a fake client instead of depending on envtest
 	var (
 		ctx              context.Context
 		fakeClient       client.Client
@@ -59,10 +57,8 @@ var _ = Describe("Namespace Controller", func() {
 	)
 
 	BeforeEach(func() {
-		// Set up logging for tests
 		log.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 
-		// Create a new scheme with the necessary types
 		s = setupFakeClientWithScheme()
 
 		ctx = context.Background()
@@ -120,7 +116,6 @@ var _ = Describe("Namespace Controller", func() {
 			},
 		}
 
-		// Initialize the fake client with the objects
 		fakeClient = fake.NewClientBuilder().
 			WithScheme(s).
 			WithObjects(namespace, quotaProfile).
@@ -158,7 +153,6 @@ var _ = Describe("Namespace Controller", func() {
 
 	Context("When reconciling a namespace with quota profile label", func() {
 		BeforeEach(func() {
-			// Add quota profile label to namespace
 			namespace.Labels = map[string]string{
 				quotav1alpha1.QuotaProfileLabelKey: fmt.Sprintf("%s.%s", profileNamespace, profileName),
 			}
@@ -235,7 +229,6 @@ var _ = Describe("Namespace Controller", func() {
 		})
 
 		It("should remove ResourceQuota and LimitRange when quota profile label is removed", func() {
-			// First reconcile with the label
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name: namespaceName,
@@ -277,7 +270,6 @@ var _ = Describe("Namespace Controller", func() {
 
 	Context("When reconciling a namespace with multiple quota profiles", func() {
 		It("should handle replacing resources when profile changes", func() {
-			// Create test namespace with profile label
 			ns := &v1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: namespaceName,
@@ -397,16 +389,10 @@ var _ = Describe("Namespace Controller", func() {
 			_, err = testReconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
-			// After reconciliation, the controller should have deleted the first profile's resources
-			// We now need to simulate the actual behavior of "empty list means create new resources"
-			// by manually checking if the second profile's resource quota exists, and creating it if needed
-
 			// Check if the ResourceQuotas for the second profile exists
 			secondRqList := &v1.ResourceQuotaList{}
 			Expect(testClient.List(ctx, secondRqList, client.InNamespace(namespaceName))).To(Succeed())
 
-			// If no ResourceQuotas exist (because the first one was deleted), we need to reconcile
-			// again to trigger the "else" case in reconcileResourceQuotas
 			if len(secondRqList.Items) == 0 {
 				_, err = testReconciler.Reconcile(ctx, req)
 				Expect(err).NotTo(HaveOccurred())

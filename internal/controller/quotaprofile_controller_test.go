@@ -49,17 +49,14 @@ var _ = Describe("QuotaProfile Controller", func() {
 		)
 
 		BeforeEach(func() {
-			// Set up logging
 			log.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 
-			// Create a new scheme and add the necessary types
 			s = runtime.NewScheme()
 			_ = clientgoscheme.AddToScheme(s)
 			_ = quotav1alpha1.AddToScheme(s)
 
 			ctx = context.Background()
 
-			// Create test objects
 			quotaProfile = &quotav1alpha1.QuotaProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      resourceName,
@@ -75,7 +72,6 @@ var _ = Describe("QuotaProfile Controller", func() {
 				},
 			}
 
-			// Create test namespace
 			testNs1 := &v1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-namespace-with-label",
@@ -91,7 +87,6 @@ var _ = Describe("QuotaProfile Controller", func() {
 				},
 			}
 
-			// Initialize the fake client with the test objects
 			fakeClient = fake.NewClientBuilder().
 				WithScheme(s).
 				WithObjects(quotaProfile, testNs1, testNs2).
