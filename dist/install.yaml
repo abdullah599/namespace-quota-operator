@@ -565,7 +565,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: abdullah599/namespace-quota-operator:2e7efc1-dirty
+        image: abdullah599/namespace-quota-operator:300791c
         livenessProbe:
           httpGet:
             path: /healthz
@@ -677,6 +677,7 @@ webhooks:
     apiVersions:
     - v1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - namespaces
