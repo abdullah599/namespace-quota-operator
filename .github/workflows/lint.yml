@@ -6,6 +6,7 @@ on:
 
 jobs:
   lint:
+    if: github.actor != 'github-actions[bot]'
     name: Run on Ubuntu
     runs-on: ubuntu-latest
     steps:

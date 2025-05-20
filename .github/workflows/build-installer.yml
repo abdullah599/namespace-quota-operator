@@ -1,0 +1,42 @@
+name: Build Installer
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    if: github.actor != 'github-actions[bot]'
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install dependencies
+        run: |
+          go mod tidy
+
+      - name: Build
+        run: |
+          make build-installer
+
+      - run: git status
+
+      - name: Commit & push if anything changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: |
+            chore(installer): rebuild assets  [skip ci]
+          branch: main
