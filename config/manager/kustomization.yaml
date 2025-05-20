@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: abdullah599/namespace-quota-operator
-  newTag: 300791c
+  newTag: bdf873d
